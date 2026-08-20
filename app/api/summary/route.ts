@@ -43,32 +43,43 @@ export async function GET(req: NextRequest) {
     subDays(prevEnd, spanDays - 1);
 
   const fetchOrders = (
-    rangeStart: Date,
-    rangeEnd: Date
-  ) =>
-    fetchAllRows<any>((from, to) => {
-      let query = supabaseAdmin
-        .from('orders_dashboard')
-        .select('*')
-        .gte(
-          'order_date',
-          rangeStart.toISOString()
-        )
-        .lte(
-          'order_date',
-          rangeEnd.toISOString()
-        )
-        .range(from, to);
+  rangeStart: Date,
+  rangeEnd: Date
+) => {
+  const rangeStartDb =
+    `${formatISO(rangeStart, {
+      representation: 'date'
+    })} 00:00`;
 
-      if (restaurant !== 'All') {
-        query = query.eq(
-          'restaurant_name',
-          restaurant
-        );
-      }
+  const rangeEndDb =
+    `${formatISO(rangeEnd, {
+      representation: 'date'
+    })} 23:59`;
 
-      return query;
-    });
+  return fetchAllRows<any>((from, to) => {
+    let query = supabaseAdmin
+      .from('orders_dashboard')
+      .select('*')
+      .gte(
+        'order_date',
+        rangeStartDb
+      )
+      .lte(
+        'order_date',
+        rangeEndDb
+      )
+      .range(from, to);
+
+    if (restaurant !== 'All') {
+      query = query.eq(
+        'restaurant_name',
+        restaurant
+      );
+    }
+
+    return query;
+  });
+};
 
   let current: any[] = [];
   let previous: any[] = [];
@@ -85,14 +96,23 @@ export async function GET(req: NextRequest) {
      * Restaurant list is built directly from the normalized view.
      * No RPC is required.
      */
-    const restaurantRows =
-      await fetchAllRows<any>((from, to) =>
-        supabaseAdmin
-          .from('orders_dashboard')
-          .select('restaurant_name')
-          .not('restaurant_name', 'is', null)
-          .range(from, to)
-      );
+    const { data: restaurantRows, error: restaurantErr } =
+  await supabaseAdmin.rpc(
+    'distinct_restaurants_dashboard'
+  );
+
+if (restaurantErr) {
+  throw new Error(restaurantErr.message);
+}
+
+restaurantNames =
+  (restaurantRows ?? [])
+    .map((row: any) => row.restaurant_name)
+    .filter(
+      (name: any) =>
+        typeof name === 'string' &&
+        name.trim().length > 0
+    );
 
     restaurantNames = Array.from(
       new Set(
