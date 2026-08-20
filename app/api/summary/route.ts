@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, fetchAllRows } from '@/lib/supabaseAdmin';
-import { differenceInCalendarDays, subDays, formatISO } from 'date-fns';
+import {
+  differenceInCalendarDays,
+  subDays,
+  formatISO,
+} from 'date-fns';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -43,43 +47,43 @@ export async function GET(req: NextRequest) {
     subDays(prevEnd, spanDays - 1);
 
   const fetchOrders = (
-  rangeStart: Date,
-  rangeEnd: Date
-) => {
-  const rangeStartDb =
-    `${formatISO(rangeStart, {
-      representation: 'date'
-    })} 00:00`;
+    rangeStart: Date,
+    rangeEnd: Date
+  ) => {
+    const rangeStartDb =
+      `${formatISO(rangeStart, {
+        representation: 'date',
+      })} 00:00`;
 
-  const rangeEndDb =
-    `${formatISO(rangeEnd, {
-      representation: 'date'
-    })} 23:59`;
+    const rangeEndDb =
+      `${formatISO(rangeEnd, {
+        representation: 'date',
+      })} 23:59`;
 
-  return fetchAllRows<any>((from, to) => {
-    let query = supabaseAdmin
-      .from('orders_dashboard')
-      .select('*')
-      .gte(
-        'order_date',
-        rangeStartDb
-      )
-      .lte(
-        'order_date',
-        rangeEndDb
-      )
-      .range(from, to);
+    return fetchAllRows<any>((from, to) => {
+      let query = supabaseAdmin
+        .from('orders_dashboard')
+        .select('*')
+        .gte(
+          'order_date',
+          rangeStartDb
+        )
+        .lte(
+          'order_date',
+          rangeEndDb
+        )
+        .range(from, to);
 
-    if (restaurant !== 'All') {
-      query = query.eq(
-        'restaurant_name',
-        restaurant
-      );
-    }
+      if (restaurant !== 'All') {
+        query = query.eq(
+          'restaurant_name',
+          restaurant
+        );
+      }
 
-    return query;
-  });
-};
+      return query;
+    });
+  };
 
   let current: any[] = [];
   let previous: any[] = [];
@@ -92,45 +96,43 @@ export async function GET(req: NextRequest) {
         fetchOrders(prevStart, prevEnd),
       ]);
 
-    /*
-     * Restaurant list is built directly from the normalized view.
-     * No RPC is required.
-     */
-    const { data: restaurantRows, error: restaurantErr } =
-  await supabaseAdmin.rpc(
-    'distinct_restaurants_dashboard'
-  );
+    const {
+      data: restaurantRows,
+      error: restaurantErr,
+    } =
+      await supabaseAdmin.rpc(
+        'distinct_restaurants_dashboard'
+      );
 
-if (restaurantErr) {
-  throw new Error(restaurantErr.message);
-}
-
-restaurantNames =
-  (restaurantRows ?? [])
-    .map((row: any) => row.restaurant_name)
-    .filter(
-      (name: any) =>
-        typeof name === 'string' &&
-        name.trim().length > 0
-    );
+    if (restaurantErr) {
+      throw new Error(
+        restaurantErr.message
+      );
+    }
 
     const names: string[] = [];
 
-for (const row of (restaurantRows ?? []) as Array<{
-  restaurant_name?: unknown;
-}>) {
-  const name = String(
-    row.restaurant_name ?? ''
-  ).trim();
+    for (
+      const row of (restaurantRows ?? []) as Array<{
+        restaurant_name?: unknown;
+      }>
+    ) {
+      const name = String(
+        row.restaurant_name ?? ''
+      ).trim();
 
-  if (name && !names.includes(name)) {
-    names.push(name);
-  }
-}
+      if (
+        name &&
+        !names.includes(name)
+      ) {
+        names.push(name);
+      }
+    }
 
-restaurantNames = names.sort((a, b) =>
-  a.localeCompare(b)
-);
+    restaurantNames =
+      names.sort((a, b) =>
+        a.localeCompare(b)
+      );
   } catch (err: any) {
     return NextResponse.json(
       {
@@ -296,8 +298,8 @@ restaurantNames = names.sort((a, b) =>
             'Unknown';
 
           accumulator[method] =
-            (accumulator[method] ||
-              0) + 1;
+            (accumulator[method] || 0) +
+            1;
 
           return accumulator;
         },
@@ -327,9 +329,6 @@ restaurantNames = names.sort((a, b) =>
       })
     );
 
-  /*
-   * Daily series
-   */
   const dailyBuckets =
     current.reduce(
       (
@@ -549,14 +548,9 @@ restaurantNames = names.sort((a, b) =>
     },
 
     paymentMethodBreakdown,
-
     hourlyTraffic,
-
     dailyFinancials,
-
     dailyOrders,
-
-    restaurants:
-      restaurantNames,
+    restaurants: restaurantNames,
   });
 }
