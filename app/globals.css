@@ -1,0 +1,179 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body {
+  background: #FAFAF9;
+  color: #211B18;
+}
+
+* {
+  border-color: theme('colors.surface.border');
+}
+
+/* ---------- Surfaces ---------- */
+
+.card {
+  @apply bg-white rounded-card border border-surface-border shadow-card p-5 transition-shadow duration-200;
+}
+
+.card-tight {
+  @apply bg-white rounded-control border border-surface-border shadow-card p-4;
+}
+
+.section-card {
+  @apply bg-white rounded-card border border-surface-border shadow-card p-5 sm:p-6;
+}
+
+/* ---------- Typography hierarchy: Page -> Section -> KPI -> Chart -> Details ---------- */
+
+.page-title {
+  @apply text-[1.375rem] leading-tight font-bold text-ink tracking-tight;
+}
+
+.page-subtitle {
+  @apply text-sm text-ink/50 mt-0.5;
+}
+
+.section-title {
+  @apply text-[0.9375rem] font-semibold text-ink tracking-tight;
+}
+
+.section-eyebrow {
+  @apply text-2xs font-semibold uppercase tracking-wider text-brand;
+}
+
+.chart-title {
+  @apply text-sm font-semibold text-ink;
+}
+
+.chart-subtitle {
+  @apply text-2xs text-ink/45 mt-0.5;
+}
+
+.kpi-value {
+  @apply text-[1.65rem] leading-none font-bold text-ink tracking-tight tabular-nums;
+}
+
+.kpi-value-compact {
+  @apply text-lg leading-none font-bold text-ink tracking-tight tabular-nums;
+}
+
+.kpi-label {
+  @apply text-xs text-ink/55 font-medium;
+}
+
+.kpi-prev {
+  @apply text-2xs text-ink/50 mt-2.5 flex items-center gap-1.5 flex-wrap;
+}
+
+/* ---------- Trend / status chips: green = positive only, red = negative only ---------- */
+
+.trend-chip {
+  @apply inline-flex items-center gap-0.5 text-2xs font-semibold px-1.5 py-0.5 rounded-chip;
+}
+
+.trend-chip-up {
+  @apply bg-success-bg text-success;
+}
+
+.trend-chip-down {
+  @apply bg-danger-bg text-danger;
+}
+
+.badge {
+  @apply inline-flex items-center gap-1 text-2xs font-semibold px-2 py-0.5 rounded-chip whitespace-nowrap;
+}
+
+.badge-neutral {
+  @apply bg-surface-muted text-ink/60;
+}
+
+.badge-brand {
+  @apply bg-brand-tint text-brand-dark;
+}
+
+.badge-success {
+  @apply bg-success-bg text-success;
+}
+
+.badge-danger {
+  @apply bg-danger-bg text-danger;
+}
+
+/* ---------- Controls ---------- */
+
+.control {
+  @apply border border-surface-border rounded-control px-3 py-2 text-sm bg-white text-ink placeholder:text-ink/35 transition-colors;
+}
+
+.control:focus {
+  @apply outline-none ring-2 ring-brand/25 border-brand/60;
+}
+
+.btn-primary {
+  @apply bg-brand hover:bg-brand-dark text-white text-sm font-semibold px-4 py-2 rounded-control transition-colors shadow-sm disabled:opacity-60 disabled:cursor-not-allowed;
+}
+
+.btn-primary:focus-visible {
+  @apply outline-none ring-2 ring-brand/30 ring-offset-2 ring-offset-white;
+}
+
+.btn-ghost {
+  @apply text-sm font-medium px-3 py-1.5 rounded-control border border-surface-border text-ink/70 bg-white hover:bg-surface-muted hover:text-ink transition-colors disabled:opacity-40 disabled:cursor-not-allowed;
+}
+
+/* ---------- Tables ---------- */
+
+.table-wrap {
+  @apply overflow-x-auto rounded-control border border-surface-border;
+}
+
+.data-table {
+  @apply w-full text-sm border-collapse;
+}
+
+.data-table thead th {
+  @apply text-left text-2xs font-semibold uppercase tracking-wide text-ink/45 bg-surface-muted py-2.5 px-3.5 whitespace-nowrap;
+}
+
+.data-table tbody td {
+  @apply py-2.5 px-3.5 text-ink/80 border-t border-surface-border;
+}
+
+.data-table tbody tr {
+  @apply transition-colors;
+}
+
+.data-table tbody tr:hover {
+  @apply bg-brand-tint/40;
+}
+
+.data-table tbody tr:nth-child(even) {
+  @apply bg-surface-sunken/60;
+}
+
+/* Sentence-cased scrollbars, thin, unobtrusive */
+::-webkit-scrollbar { height: 8px; width: 8px; }
+::-webkit-scrollbar-thumb { background: #E5E0DB; border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: #D8CFC6; }
+
+/* Recharts polish: quieter default text, no focus outline box on SVG containers */
+.recharts-wrapper:focus,
+.recharts-surface:focus {
+  outline: none;
+}
+
+.recharts-default-tooltip {
+  border-radius: 12px !important;
+}
+
+.recharts-cartesian-axis-tick text {
+  fill: #211B18;
+  opacity: 0.55;
+}
+
+.recharts-legend-item-text {
+  color: #211B18 !important;
+  opacity: 0.7;
+}
