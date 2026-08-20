@@ -115,21 +115,20 @@ restaurantNames =
     );
 
     restaurantNames = Array.from(
-      new Set(
-        restaurantRows
-          .map(
-            (row: any) =>
-              row.restaurant_name
-          )
-          .filter(
-            (name: any) =>
-              typeof name === 'string' &&
-              name.trim().length > 0
-          )
+  new Set<string>(
+    restaurantRows
+      .map(
+        (row: any) =>
+          String(row.restaurant_name ?? '').trim()
       )
-    ).sort((a, b) =>
-      a.localeCompare(b)
-    );
+      .filter(
+        (name: string) =>
+          name.length > 0
+      )
+  )
+).sort((a, b) =>
+  a.localeCompare(b)
+);
   } catch (err: any) {
     return NextResponse.json(
       {
