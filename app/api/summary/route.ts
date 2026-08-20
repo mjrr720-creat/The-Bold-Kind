@@ -60,11 +60,19 @@ export async function GET(req: NextRequest) {
 
     // Get distinct restaurant names for the filter dropdown.
     const { data: restaurantRows, error: restaurantErr } =
-      await supabaseAdmin.rpc('distinct_restaurants');
+  await supabaseAdmin.rpc('distinct_restaurants');
 
-    if (restaurantErr) {
-      throw new Error(restaurantErr.message);
-    }
+if (restaurantErr) {
+  throw new Error(restaurantErr.message);
+}
+
+const rows = (restaurantRows ?? []) as Array<{
+  restaurant_name: string | null;
+}>;
+
+restaurantNames = rows
+  .map((r) => r.restaurant_name)
+  .filter((name): name is string => Boolean(name));
 
     // Explicitly type the RPC result to prevent
     // "unknown[] is not assignable to string[]" TypeScript error.
