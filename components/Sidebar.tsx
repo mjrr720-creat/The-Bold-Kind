@@ -1,5 +1,5 @@
 'use client';
-
+import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
@@ -14,7 +14,7 @@ interface Props {
 const NAV_ITEMS: {
   id: DashboardTab;
   label: string;
-  icon: JSX.Element;
+  icon: ReactNode;
 }[] = [
   {
     id: 'orders',
