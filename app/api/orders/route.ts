@@ -5,33 +5,138 @@ export const runtime = 'nodejs';
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const restaurant = searchParams.get('restaurant') ?? 'All';
-  const startDate = searchParams.get('startDate');
-  const endDate = searchParams.get('endDate');
-  const page = Number(searchParams.get('page') ?? '1');
-  // Clamped to PostgREST's per-response row cap (1000) so a future UI
-  // change requesting a larger page can't silently get truncated data.
-  const pageSize = Math.min(Number(searchParams.get('pageSize') ?? '25'), 1000);
+
+  const restaurant =
+    searchParams.get('restaurant') ?? 'All';
+
+  const startDate =
+    searchParams.get('startDate');
+
+  const endDate =
+    searchParams.get('endDate');
+
+  const page = Math.max(
+    Number(searchParams.get('page') ?? '1'),
+    1
+  );
+
+  const pageSize = Math.min(
+    Math.max(
+      Number(searchParams.get('pageSize') ?? '25'),
+      1
+    ),
+    1000
+  );
 
   if (!startDate || !endDate) {
-    return NextResponse.json({ error: 'startDate and endDate are required.' }, { status: 400 });
+    return NextResponse.json(
+      {
+        error:
+          'startDate and endDate are required.'
+      },
+      { status: 400 }
+    );
   }
 
   let query = supabaseAdmin
     .from('orders')
     .select(
-      'order_id, restaurant_name, order_date, order_status, payment_method, subtotal, payout_amount, tax_amount, order_items',
+      `
+        "Order ID",
+        "Restaurant name",
+        "Order received at",
+        "Order status",
+        "Payment method",
+        "Subtotal",
+        "Payout Amount",
+        "Tax Amount",
+        "Order Items"
+      `,
       { count: 'exact' }
     )
-    .gte('order_date', `${startDate}T00:00:00Z`)
-    .lte('order_date', `${endDate}T23:59:59Z`)
-    .order('order_date', { ascending: false })
-    .range((page - 1) * pageSize, page * pageSize - 1);
+    .gte(
+      'Order received at',
+      `${startDate}T00:00:00Z`
+    )
+    .lte(
+      'Order received at',
+      `${endDate}T23:59:59Z`
+    )
+    .order(
+      'Order received at',
+      { ascending: false }
+    )
+    .range(
+      (page - 1) * pageSize,
+      page * pageSize - 1
+    );
 
-  if (restaurant !== 'All') query = query.eq('restaurant_name', restaurant);
+  if (restaurant !== 'All') {
+    query = query.eq(
+      'Restaurant name',
+      restaurant
+    );
+  }
 
-  const { data, error, count } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  const {
+    data,
+    error,
+    count
+  } = await query;
 
-  return NextResponse.json({ rows: data, total: count, page, pageSize });
+  if (error) {
+    return NextResponse.json(
+      {
+        error: error.message
+      },
+      { status: 500 }
+    );
+  }
+
+  const rows = (data ?? []).map(
+    (row: any) => ({
+      order_id: Number(
+        row['Order ID'] ?? 0
+      ),
+
+      restaurant_name:
+        row['Restaurant name'] ??
+        '',
+
+      order_date:
+        row['Order received at'] ??
+        null,
+
+      order_status:
+        row['Order status'] ??
+        null,
+
+      payment_method:
+        row['Payment method'] ??
+        null,
+
+      subtotal: Number(
+        row['Subtotal'] ?? 0
+      ),
+
+      payout_amount: Number(
+        row['Payout Amount'] ?? 0
+      ),
+
+      tax_amount: Number(
+        row['Tax Amount'] ?? 0
+      ),
+
+      order_items:
+        row['Order Items'] ??
+        null
+    })
+  );
+
+  return NextResponse.json({
+    rows,
+    total: count ?? 0,
+    page,
+    pageSize
+  });
 }
