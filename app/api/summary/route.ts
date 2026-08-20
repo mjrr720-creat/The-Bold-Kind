@@ -114,19 +114,21 @@ restaurantNames =
         name.trim().length > 0
     );
 
-    restaurantNames = Array.from(
-  new Set<string>(
-    restaurantRows
-      .map(
-        (row: any) =>
-          String(row.restaurant_name ?? '').trim()
-      )
-      .filter(
-        (name: string) =>
-          name.length > 0
-      )
-  )
-).sort((a, b) =>
+    const names: string[] = [];
+
+for (const row of (restaurantRows ?? []) as Array<{
+  restaurant_name?: unknown;
+}>) {
+  const name = String(
+    row.restaurant_name ?? ''
+  ).trim();
+
+  if (name && !names.includes(name)) {
+    names.push(name);
+  }
+}
+
+restaurantNames = names.sort((a, b) =>
   a.localeCompare(b)
 );
   } catch (err: any) {
