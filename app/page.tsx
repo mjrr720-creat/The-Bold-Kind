@@ -238,16 +238,6 @@ const salesOrdersOverview = summary
 
       </div>
 
-      {/* Existing Upload Button */}
-      <div className="relative z-20 shrink-0">
-        <UploadButton
-          onUploaded={() => {
-            loadSummary();
-            loadInsights();
-          }}
-        />
-      </div>
-
     </div>
 
     {/* Breadcrumb */}
