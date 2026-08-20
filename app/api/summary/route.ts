@@ -30,15 +30,38 @@ export async function GET(req: NextRequest) {
   const start = new Date(`${startDate}T00:00:00Z`);
   const end = new Date(`${endDate}T23:59:59Z`);
 
+  if (
+    !Number.isFinite(start.getTime()) ||
+    !Number.isFinite(end.getTime())
+  ) {
+    return NextResponse.json(
+      {
+        error: 'Invalid startDate or endDate.',
+      },
+      { status: 400 }
+    );
+  }
+
   const spanDays = differenceInCalendarDays(end, start) + 1;
 
   const prevEnd = subDays(start, 1);
   const prevStart = subDays(prevEnd, spanDays - 1);
 
+  /*
+   * IMPORTANT:
+   * Read from orders_dashboard instead of public.orders.
+   *
+   * orders_dashboard normalizes:
+   * - financial fields to numeric
+   * - boolean fields to boolean
+   * - blank text values to NULL
+   *
+   * This keeps the aggregation below reliable.
+   */
   const fetchOrders = (rangeStart: Date, rangeEnd: Date) =>
     fetchAllRows<any>((from, to) => {
       let query = supabaseAdmin
-        .from('orders')
+        .from('orders_dashboard')
         .select('*')
         .gte('order_date', rangeStart.toISOString())
         .lte('order_date', rangeEnd.toISOString())
@@ -56,13 +79,20 @@ export async function GET(req: NextRequest) {
   let restaurantNames: string[] = [];
 
   try {
-    // Fetch current and previous period orders.
+    /*
+     * Fetch current and previous period orders.
+     */
     [current, previous] = await Promise.all([
       fetchOrders(start, end),
       fetchOrders(prevStart, prevEnd),
     ]);
 
-    // Get distinct restaurant names for the filter dropdown.
+    /*
+     * Get distinct restaurant names for the filter dropdown.
+     *
+     * Keep using the existing RPC because it already returns
+     * restaurant_name according to the current project structure.
+     */
     const {
       data: restaurantRows,
       error: restaurantErr,
@@ -72,8 +102,10 @@ export async function GET(req: NextRequest) {
       throw new Error(restaurantErr.message);
     }
 
-    // Explicitly type the RPC result so TypeScript knows
-    // restaurant_name is a string or null.
+    /*
+     * Explicitly type the RPC result so TypeScript knows
+     * restaurant_name is a string or null.
+     */
     const restaurantNameRows =
       (restaurantRows ?? []) as Array<{
         restaurant_name: string | null;
@@ -86,7 +118,9 @@ export async function GET(req: NextRequest) {
           typeof name === 'string' && name.trim().length > 0
       );
 
-    // Remove duplicate restaurant names just in case.
+    /*
+     * Remove duplicate restaurant names just in case.
+     */
     restaurantNames = Array.from(new Set(restaurantNames)).sort();
   } catch (err: any) {
     return NextResponse.json(
@@ -101,6 +135,12 @@ export async function GET(req: NextRequest) {
   // Aggregation helpers
   // ---------------------------------------------------------------------
 
+  /*
+   * Safely sum numeric fields.
+   *
+   * orders_dashboard already returns financial fields as numeric,
+   * but Number() keeps this helper defensive.
+   */
   const sum = (orderRows: any[], key: string) =>
     orderRows.reduce((acc, row) => {
       const numberValue = Number(row[key]);
@@ -111,6 +151,9 @@ export async function GET(req: NextRequest) {
       );
     }, 0);
 
+  /*
+   * Average numeric value.
+   */
   const avg = (orderRows: any[], key: string) => {
     const values = orderRows
       .map((row) => Number(row[key]))
@@ -122,13 +165,14 @@ export async function GET(req: NextRequest) {
 
     return (
       Math.round(
-        (values.reduce((a, b) => a + b, 0) / values.length) *
-          100
+        (values.reduce((a, b) => a + b, 0) / values.length) * 100
       ) / 100
     );
   };
 
-  // Mirrors DATEDIFF(startKey, endKey, MINUTE)
+  /*
+   * Returns the average difference in minutes between two timestamps.
+   */
   const avgMinutesDiff = (
     orderRows: any[],
     startKey: string,
@@ -154,7 +198,15 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      differences.push((endTime - startTime) / 60000);
+      const difference = (endTime - startTime) / 60000;
+
+      /*
+       * Ignore negative durations caused by bad/misaligned
+       * timestamps rather than allowing them to distort averages.
+       */
+      if (difference >= 0) {
+        differences.push(difference);
+      }
     }
 
     if (differences.length === 0) {
@@ -170,7 +222,9 @@ export async function GET(req: NextRequest) {
     );
   };
 
-  // Returns UTC hour from a timestamp.
+  /*
+   * Returns UTC hour from a timestamp.
+   */
   const hourOf = (
     row: any,
     key: string
@@ -188,6 +242,9 @@ export async function GET(req: NextRequest) {
       : null;
   };
 
+  /*
+   * Average order hour.
+   */
   const avgHourOf = (
     orderRows: any[],
     key: string
@@ -283,8 +340,14 @@ export async function GET(req: NextRequest) {
           return accumulator;
         }
 
+        const parsedDate = new Date(row.order_date);
+
+        if (!Number.isFinite(parsedDate.getTime())) {
+          return accumulator;
+        }
+
         const date = formatISO(
-          new Date(row.order_date),
+          parsedDate,
           {
             representation: 'date',
           }
@@ -320,8 +383,6 @@ export async function GET(req: NextRequest) {
       }
     );
 
-    // Use a unique variable name here to avoid
-    // any possible "rows already declared" conflict.
     const dailyOrderRows =
       dailyBuckets[date] ?? [];
 
@@ -364,7 +425,10 @@ export async function GET(req: NextRequest) {
   // ---------------------------------------------------------------------
 
   return NextResponse.json({
+    // -------------------------------------------------------------------
     // Main KPIs
+    // -------------------------------------------------------------------
+
     totalStores,
 
     totalOrders: current.length,
@@ -401,11 +465,16 @@ export async function GET(req: NextRequest) {
         ) * 100
       ) / 100,
 
+    /*
+     * FIX:
+     * orders_dashboard uses payout_after_food_cost
+     * instead of Payout_after_Food_Cost.
+     */
     payoutAfterFoodCost:
       Math.round(
         sum(
           current,
-          'Payout_after_Food_Cost'
+          'payout_after_food_cost'
         ) * 100
       ) / 100,
 
@@ -417,7 +486,10 @@ export async function GET(req: NextRequest) {
         ) * 100
       ) / 100,
 
+    // -------------------------------------------------------------------
     // Time KPIs
+    // -------------------------------------------------------------------
+
     avgOrderHour:
       avgHourOf(
         current,
@@ -445,7 +517,10 @@ export async function GET(req: NextRequest) {
         'delivered_at'
       ),
 
+    // -------------------------------------------------------------------
     // Previous Period
+    // -------------------------------------------------------------------
+
     previous: {
       totalOrders:
         previous.length,
@@ -483,7 +558,10 @@ export async function GET(req: NextRequest) {
         ) / 100,
     },
 
+    // -------------------------------------------------------------------
     // Charts
+    // -------------------------------------------------------------------
+
     paymentMethodBreakdown,
 
     hourlyTraffic,
@@ -492,7 +570,10 @@ export async function GET(req: NextRequest) {
 
     dailyOrders,
 
-    // Restaurant filter
+    // -------------------------------------------------------------------
+    // Restaurant Filter
+    // -------------------------------------------------------------------
+
     restaurants: restaurantNames,
   });
 }
