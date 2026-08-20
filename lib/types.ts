@@ -50,6 +50,7 @@ export interface SummaryResponse {
   avgPrepTimeMin: number | null;
   avgDelayVsEstimateMin: number | null;
   avgDeliveryTimeMin: number | null;
+
   previous: {
     totalOrders: number;
     totalSales: number;
@@ -57,9 +58,40 @@ export interface SummaryResponse {
     totalMarketingFees: number;
     taxAmount: number;
   };
-  paymentMethodBreakdown: { method: string; count: number }[];
-  hourlyTraffic: { hour: number; count: number }[];
-  monthlyFinancials: { month: string; subtotal: number; commission: number; payout: number }[];
-  monthlyOrders: { month: string; count: number }[];
+
+  paymentMethodBreakdown: {
+    method: string;
+    count: number;
+  }[];
+
+  hourlyTraffic: {
+    hour: number;
+    count: number;
+  }[];
+
+  dailyFinancials: {
+    date: string;
+    sales: number;
+    commission: number;
+    payout: number;
+  }[];
+
+  dailyOrders: {
+    date: string;
+    count: number;
+  }[];
+
+  monthlyFinancials: {
+    month: string;
+    subtotal: number;
+    commission: number;
+    payout: number;
+  }[];
+
+  monthlyOrders: {
+    month: string;
+    count: number;
+  }[];
+
   restaurants: string[];
 }
