@@ -5,185 +5,6 @@ import { formatISO } from 'date-fns';
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-function normalizeOrder(row: any) {
-  return {
-    restaurant_name:
-      row['Restaurant name'] ??
-      row['restaurant_name'] ??
-      '',
-
-    order_id: Number(
-      row['Order ID'] ??
-      row['order_id'] ??
-      0
-    ),
-
-    store_id:
-      row['Store ID'] === null ||
-      row['Store ID'] === undefined ||
-      row['Store ID'] === ''
-        ? null
-        : Number(row['Store ID']),
-
-    delivery_type:
-      row['Delivery Type'] ??
-      row['delivery_type'] ??
-      null,
-
-    payment_type:
-      row['Payment type'] ??
-      row['payment_type'] ??
-      null,
-
-    payment_method:
-      row['Payment method'] ??
-      row['payment_method'] ??
-      null,
-
-    is_subscription_order:
-      Boolean(
-        row['Is Subscription Order'] ??
-        row['is_subscription_order'] ??
-        false
-      ),
-
-    order_status:
-      row['Order status'] ??
-      row['order_status'] ??
-      null,
-
-    order_date:
-      row['Order received at'] ??
-      row['order_date'] ??
-      null,
-
-    accepted_at:
-      row['Accepted at'] ??
-      row['accepted_at'] ??
-      null,
-
-    estimated_ready_at:
-      row['Estimated ready to pick up time'] ??
-      row['estimated_ready_at'] ??
-      null,
-
-    ready_to_pickup_at:
-      row['Ready to pick up at'] ??
-      row['ready_to_pickup_at'] ??
-      null,
-
-    rider_near_pickup_at:
-      row['Rider near pickup at'] ??
-      row['rider_near_pickup_at'] ??
-      null,
-
-    in_delivery_at:
-      row['In delivery at'] ??
-      row['in_delivery_at'] ??
-      null,
-
-    estimated_delivery_at:
-      row['Estimated delivery time'] ??
-      row['estimated_delivery_at'] ??
-      null,
-
-    delivered_at:
-      row['Delivered at'] ??
-      row['delivered_at'] ??
-      null,
-
-    has_complaint:
-      Boolean(
-        row['Has Complaint?'] ??
-        row['has_complaint'] ??
-        false
-      ),
-
-    complaint_reason:
-      row['Complaint Reason'] ??
-      row['complaint_reason'] ??
-      null,
-
-    cancelled_at:
-      row['Cancelled at'] ??
-      row['cancelled_at'] ??
-      null,
-
-    cancellation_reason:
-      row['Cancellation reason'] ??
-      row['cancellation_reason'] ??
-      null,
-
-    cancellation_owner:
-      row['Cancellation owner'] ??
-      row['cancellation_owner'] ??
-      null,
-
-    subtotal: Number(
-      row['Subtotal'] ??
-      row['subtotal'] ??
-      0
-    ),
-
-    discount_funded_by_you: Number(
-      row['Discount Funded by you'] ??
-      row['discount_funded_by_you'] ??
-      0
-    ),
-
-    voucher_funded_by_you: Number(
-      row['Voucher Funded by you'] ??
-      row['voucher_funded_by_you'] ??
-      0
-    ),
-
-    commission: Number(
-      row['Commission'] ??
-      row['commission'] ??
-      0
-    ),
-
-    payout_amount: Number(
-      row['Payout Amount'] ??
-      row['payout_amount'] ??
-      0
-    ),
-
-    marketing_fees_total: Number(
-      row['Marketing Fees Total'] ??
-      row['marketing_fees_total'] ??
-      0
-    ),
-
-    marketing_fees: Number(
-      row['Marketing Fees'] ??
-      row['marketing_fees'] ??
-      0
-    ),
-
-    talabat_funded_discount: Number(
-      row['Talabat-Funded Discount'] ??
-      row['talabat_funded_discount'] ??
-      0
-    ),
-
-    tax_amount: Number(
-      row['Tax Amount'] ??
-      row['tax_amount'] ??
-      0
-    ),
-
-    order_items:
-      row['Order Items'] ??
-      row['order_items'] ??
-      null,
-
-    order_month:
-      row['order_month'] ??
-      null
-  };
-}
-
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
 
@@ -200,7 +21,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       {
         error:
-          'startDate and endDate are required (yyyy-MM-dd).'
+          'startDate and endDate are required (yyyy-MM-dd).',
       },
       { status: 400 }
     );
@@ -215,53 +36,47 @@ export async function GET(req: NextRequest) {
   let rows: any[];
 
   try {
-    const rawRows =
-      await fetchAllRows<any>((from, to) => {
-        let q = supabaseAdmin
-          .from('orders')
-          .select('*')
-          .gte(
-            'Order received at',
-            start.toISOString()
-          )
-          .lte(
-            'Order received at',
-            end.toISOString()
-          )
-          .range(from, to);
+    rows = await fetchAllRows<any>((from, to) => {
+      let query = supabaseAdmin
+        .from('orders_dashboard')
+        .select('*')
+        .gte(
+          'order_date',
+          start.toISOString()
+        )
+        .lte(
+          'order_date',
+          end.toISOString()
+        )
+        .range(from, to);
 
-        if (restaurant !== 'All') {
-          q = q.eq(
-            'Restaurant name',
-            restaurant
-          );
-        }
+      if (restaurant !== 'All') {
+        query = query.eq(
+          'restaurant_name',
+          restaurant
+        );
+      }
 
-        return q;
-      });
-
-    rows =
-      rawRows.map(normalizeOrder);
+      return query;
+    });
   } catch (err: any) {
     return NextResponse.json(
       {
         error:
           err?.message ??
-          'Failed to load orders'
+          'Failed to load dashboard insights.',
       },
       { status: 500 }
     );
   }
 
   // -------------------------------------------------------------------
-  // Null-safe helpers
+  // Helpers
   // -------------------------------------------------------------------
 
-  const num = (v: unknown) => {
-    const n = Number(v);
-    return Number.isFinite(n)
-      ? n
-      : 0;
+  const num = (value: unknown) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
   };
 
   const sum = (
@@ -269,8 +84,8 @@ export async function GET(req: NextRequest) {
     key: string
   ) =>
     arr.reduce(
-      (acc, r) =>
-        acc + num(r[key]),
+      (acc, row) =>
+        acc + num(row[key]),
       0
     );
 
@@ -280,57 +95,56 @@ export async function GET(req: NextRequest) {
   ) =>
     denominator > 0
       ? Math.round(
-          (numerator /
-            denominator) *
-            10000
+          (numerator / denominator) * 10000
         ) / 100
       : null;
 
   const minutesBetween = (
-    r: any,
+    row: any,
     startKey: string,
     endKey: string
   ): number | null => {
-    const a = r[startKey];
-    const b = r[endKey];
+    const startValue =
+      row[startKey];
 
-    if (!a || !b) {
+    const endValue =
+      row[endKey];
+
+    if (!startValue || !endValue) {
       return null;
     }
 
-    const sMs =
-      new Date(a).getTime();
+    const startMs =
+      new Date(startValue).getTime();
 
-    const eMs =
-      new Date(b).getTime();
+    const endMs =
+      new Date(endValue).getTime();
 
     if (
-      !Number.isFinite(sMs) ||
-      !Number.isFinite(eMs)
+      !Number.isFinite(startMs) ||
+      !Number.isFinite(endMs)
     ) {
       return null;
     }
 
     return (
-      (eMs - sMs) /
-      60000
+      (endMs - startMs) / 60000
     );
   };
 
   const groupCount = (
     arr: any[],
     keyFn: (
-      r: any
+      row: any
     ) => string | null | undefined
   ): Record<string, number> => {
-    const acc: Record<
+    const result: Record<
       string,
       number
     > = {};
 
-    for (const r of arr) {
-      const key =
-        keyFn(r);
+    for (const row of arr) {
+      const key = keyFn(row);
 
       if (
         key === null ||
@@ -340,11 +154,11 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      acc[key] =
-        (acc[key] || 0) + 1;
+      result[key] =
+        (result[key] || 0) + 1;
     }
 
-    return acc;
+    return result;
   };
 
   const toSortedLabelValue = (
@@ -358,7 +172,7 @@ export async function GET(req: NextRequest) {
       Object.entries(map).map(
         ([label, value]) => ({
           label,
-          value
+          value,
         })
       );
 
@@ -376,23 +190,21 @@ export async function GET(req: NextRequest) {
     rows.length;
 
   const totalSubtotal =
-    sum(
-      rows,
-      'subtotal'
-    );
+    sum(rows, 'subtotal');
 
   // -------------------------------------------------------------------
   // KPIs
   // -------------------------------------------------------------------
 
-  const isCancelled =
-    (r: any) =>
-      Boolean(r.cancelled_at) ||
-      /cancel/i.test(
-        String(
-          r.order_status ?? ''
-        )
-      );
+  const isCancelled = (
+    row: any
+  ) =>
+    Boolean(row.cancelled_at) ||
+    /cancel/i.test(
+      String(
+        row.order_status ?? ''
+      )
+    );
 
   const cancelledCount =
     rows.filter(
@@ -401,26 +213,26 @@ export async function GET(req: NextRequest) {
 
   const withBothDeliveryTimestamps =
     rows.filter(
-      (r) =>
-        r.delivered_at &&
-        r.estimated_delivery_at
+      (row) =>
+        row.delivered_at &&
+        row.estimated_delivery_at
     );
 
   const onTimeCount =
     withBothDeliveryTimestamps.filter(
-      (r) =>
+      (row) =>
         new Date(
-          r.delivered_at
+          row.delivered_at
         ).getTime() <=
         new Date(
-          r.estimated_delivery_at
+          row.estimated_delivery_at
         ).getTime()
     ).length;
 
   const complaintCount =
     rows.filter(
-      (r) =>
-        r.has_complaint === true
+      (row) =>
+        row.has_complaint === true
     ).length;
 
   const kpis = {
@@ -485,7 +297,7 @@ export async function GET(req: NextRequest) {
           'marketing_fees_total'
         ),
         totalSubtotal
-      )
+      ),
   };
 
   // -------------------------------------------------------------------
@@ -495,18 +307,17 @@ export async function GET(req: NextRequest) {
   const salesByRestaurant:
     Record<string, number> = {};
 
-  for (const r of rows) {
+  for (const row of rows) {
     const name =
-      r.restaurant_name;
+      row.restaurant_name;
 
     if (!name) {
       continue;
     }
 
     salesByRestaurant[name] =
-      (salesByRestaurant[name] ||
-        0) +
-      num(r.subtotal);
+      (salesByRestaurant[name] || 0) +
+      num(row.subtotal);
   }
 
   const topRestaurantsBySales =
@@ -519,7 +330,7 @@ export async function GET(req: NextRequest) {
           value:
             Math.round(
               value * 100
-            ) / 100
+            ) / 100,
         })
       )
       .sort(
@@ -538,8 +349,8 @@ export async function GET(req: NextRequest) {
     toSortedLabelValue(
       groupCount(
         rows,
-        (r) =>
-          r.order_status
+        (row) =>
+          row.order_status
       )
     );
 
@@ -547,8 +358,8 @@ export async function GET(req: NextRequest) {
     toSortedLabelValue(
       groupCount(
         rows,
-        (r) =>
-          r.cancellation_reason
+        (row) =>
+          row.cancellation_reason
       ),
       5
     );
@@ -557,8 +368,8 @@ export async function GET(req: NextRequest) {
     toSortedLabelValue(
       groupCount(
         rows,
-        (r) =>
-          r.cancellation_owner
+        (row) =>
+          row.cancellation_owner
       )
     );
 
@@ -573,46 +384,46 @@ export async function GET(req: NextRequest) {
     'Wednesday',
     'Thursday',
     'Friday',
-    'Saturday'
+    'Saturday',
   ];
 
   const weekdayCounts =
     new Array(7).fill(0);
 
-  for (const r of rows) {
-    if (!r.order_date) {
+  for (const row of rows) {
+    if (!row.order_date) {
       continue;
     }
 
-    const d =
+    const date =
       new Date(
-        r.order_date
+        row.order_date
       );
 
     if (
       !Number.isFinite(
-        d.getTime()
+        date.getTime()
       )
     ) {
       continue;
     }
 
     weekdayCounts[
-      d.getUTCDay()
+      date.getUTCDay()
     ] += 1;
   }
 
   const MONDAY_FIRST_ORDER = [
-    1, 2, 3, 4, 5, 6, 0
+    1, 2, 3, 4, 5, 6, 0,
   ];
 
   const ordersByWeekday =
     MONDAY_FIRST_ORDER.map(
-      (i) => ({
+      (index) => ({
         label:
-          WEEKDAY_NAMES[i],
+          WEEKDAY_NAMES[index],
         value:
-          weekdayCounts[i]
+          weekdayCounts[index],
       })
     );
 
@@ -627,31 +438,31 @@ export async function GET(req: NextRequest) {
   const countByHourArr =
     new Array(24).fill(0);
 
-  for (const r of rows) {
-    if (!r.order_date) {
+  for (const row of rows) {
+    if (!row.order_date) {
       continue;
     }
 
-    const d =
+    const date =
       new Date(
-        r.order_date
+        row.order_date
       );
 
     if (
       !Number.isFinite(
-        d.getTime()
+        date.getTime()
       )
     ) {
       continue;
     }
 
-    const h =
-      d.getUTCHours();
+    const hour =
+      date.getUTCHours();
 
-    salesByHourArr[h] +=
-      num(r.subtotal);
+    salesByHourArr[hour] +=
+      num(row.subtotal);
 
-    countByHourArr[h] += 1;
+    countByHourArr[hour] += 1;
   }
 
   const salesByHour =
@@ -661,7 +472,7 @@ export async function GET(req: NextRequest) {
         value:
           Math.round(
             value * 100
-          ) / 100
+          ) / 100,
       })
     );
 
@@ -669,7 +480,7 @@ export async function GET(req: NextRequest) {
     countByHourArr.map(
       (value, hour) => ({
         label: String(hour),
-        value
+        value,
       })
     );
 
@@ -687,9 +498,9 @@ export async function GET(req: NextRequest) {
       }
     > = {};
 
-  for (const r of rows) {
+  for (const row of rows) {
     const name =
-      r.restaurant_name;
+      row.restaurant_name;
 
     if (!name) {
       continue;
@@ -701,29 +512,26 @@ export async function GET(req: NextRequest) {
       prepByRestaurant[name] = {
         totalMin: 0,
         count: 0,
-        orders: 0
+        orders: 0,
       };
     }
 
-    prepByRestaurant[
-      name
-    ].orders += 1;
+    prepByRestaurant[name]
+      .orders += 1;
 
     const diff =
       minutesBetween(
-        r,
+        row,
         'accepted_at',
         'ready_to_pickup_at'
       );
 
     if (diff !== null) {
-      prepByRestaurant[
-        name
-      ].totalMin += diff;
+      prepByRestaurant[name]
+        .totalMin += diff;
 
-      prepByRestaurant[
-        name
-      ].count += 1;
+      prepByRestaurant[name]
+        .count += 1;
     }
   }
 
@@ -732,8 +540,8 @@ export async function GET(req: NextRequest) {
       prepByRestaurant
     )
       .filter(
-        ([, v]) =>
-          v.count > 0
+        ([, value]) =>
+          value.count > 0
       )
       .sort(
         (a, b) =>
@@ -742,39 +550,38 @@ export async function GET(req: NextRequest) {
       )
       .slice(0, 15)
       .map(
-        ([label, v]) => ({
+        ([label, value]) => ({
           label,
-
           value:
             Math.round(
               (
-                v.totalMin /
-                v.count
+                value.totalMin /
+                value.count
               ) * 100
-            ) / 100
+            ) / 100,
         })
       );
 
   // -------------------------------------------------------------------
-  // 10. Delivery Delay buckets
+  // 10. Delivery Delay Buckets
   // -------------------------------------------------------------------
 
   const delayCategory = (
-    min: number
+    minutes: number
   ): string => {
-    if (min < 0) {
+    if (minutes < 0) {
       return 'Early';
     }
 
-    if (min <= 5) {
+    if (minutes <= 5) {
       return 'On Time (0-5m)';
     }
 
-    if (min <= 15) {
+    if (minutes <= 15) {
       return 'Slightly Late (5-15m)';
     }
 
-    if (min <= 30) {
+    if (minutes <= 30) {
       return 'Late (15-30m)';
     }
 
@@ -782,13 +589,12 @@ export async function GET(req: NextRequest) {
   };
 
   const delayBucketCounts:
-    Record<string, number> =
-    {};
+    Record<string, number> = {};
 
-  for (const r of rows) {
+  for (const row of rows) {
     const diff =
       minutesBetween(
-        r,
+        row,
         'estimated_delivery_at',
         'delivered_at'
       );
@@ -797,12 +603,12 @@ export async function GET(req: NextRequest) {
       continue;
     }
 
-    const cat =
+    const category =
       delayCategory(diff);
 
-    delayBucketCounts[cat] =
-      (delayBucketCounts[cat] ||
-        0) + 1;
+    delayBucketCounts[category] =
+      (delayBucketCounts[category] || 0) +
+      1;
   }
 
   const DELAY_ORDER = [
@@ -810,24 +616,24 @@ export async function GET(req: NextRequest) {
     'On Time (0-5m)',
     'Slightly Late (5-15m)',
     'Late (15-30m)',
-    'Very Late (>30m)'
+    'Very Late (>30m)',
   ];
 
   const deliveryDelayBuckets =
     DELAY_ORDER
       .filter(
-        (cat) =>
+        (category) =>
           delayBucketCounts[
-            cat
+            category
           ] > 0
       )
       .map(
-        (cat) => ({
-          label: cat,
+        (category) => ({
+          label: category,
           value:
             delayBucketCounts[
-              cat
-            ]
+              category
+            ],
         })
       );
 
@@ -837,36 +643,36 @@ export async function GET(req: NextRequest) {
   // -------------------------------------------------------------------
 
   const monthKeyOf = (
-    r: any
+    row: any
   ) => {
-    if (r.order_month) {
+    if (row.order_month) {
       return String(
-        r.order_month
+        row.order_month
       ).slice(0, 7);
     }
 
-    if (!r.order_date) {
+    if (!row.order_date) {
       return '';
     }
 
-    const d =
+    const date =
       new Date(
-        r.order_date
+        row.order_date
       );
 
     if (
       !Number.isFinite(
-        d.getTime()
+        date.getTime()
       )
     ) {
       return '';
     }
 
     return formatISO(
-      d,
+      date,
       {
         representation:
-          'date'
+          'date',
       }
     ).slice(0, 7);
   };
@@ -881,51 +687,41 @@ export async function GET(req: NextRequest) {
     > = {};
 
   const marketingByMonth:
-    Record<
-      string,
-      number
-    > = {};
+    Record<string, number> = {};
 
-  for (const r of rows) {
+  for (const row of rows) {
     const month =
-      monthKeyOf(r);
+      monthKeyOf(row);
 
     if (!month) {
       continue;
     }
 
     if (
-      !discountByMonth[
-        month
-      ]
+      !discountByMonth[month]
     ) {
       discountByMonth[month] = {
         restaurantFunded: 0,
-        talabatFunded: 0
+        talabatFunded: 0,
       };
     }
 
-    discountByMonth[
-      month
-    ].restaurantFunded +=
+    discountByMonth[month]
+      .restaurantFunded +=
       num(
-        r.discount_funded_by_you
+        row.discount_funded_by_you
       );
 
-    discountByMonth[
-      month
-    ].talabatFunded +=
+    discountByMonth[month]
+      .talabatFunded +=
       num(
-        r.talabat_funded_discount
+        row.talabat_funded_discount
       );
 
-    marketingByMonth[
-      month
-    ] =
-      (marketingByMonth[month] ||
-        0) +
+    marketingByMonth[month] =
+      (marketingByMonth[month] || 0) +
       num(
-        r.marketing_fees_total
+        row.marketing_fees_total
       );
   }
 
@@ -944,19 +740,17 @@ export async function GET(req: NextRequest) {
 
         restaurantFunded:
           Math.round(
-            discountByMonth[
-              month
-            ].restaurantFunded *
+            discountByMonth[month]
+              .restaurantFunded *
               100
           ) / 100,
 
         talabatFunded:
           Math.round(
-            discountByMonth[
-              month
-            ].talabatFunded *
+            discountByMonth[month]
+              .talabatFunded *
               100
-          ) / 100
+          ) / 100,
       })
     );
 
@@ -968,11 +762,10 @@ export async function GET(req: NextRequest) {
         value:
           Math.round(
             (
-              marketingByMonth[
-                month
-              ] || 0
+              marketingByMonth[month] ||
+              0
             ) * 100
-          ) / 100
+          ) / 100,
       })
     );
 
@@ -986,9 +779,9 @@ export async function GET(req: NextRequest) {
     toSortedLabelValue(
       groupCount(
         rows,
-        (r) =>
-          r.has_complaint
-            ? r.complaint_reason
+        (row) =>
+          row.has_complaint
+            ? row.complaint_reason
             : null
       )
     );
@@ -997,8 +790,8 @@ export async function GET(req: NextRequest) {
     toSortedLabelValue(
       groupCount(
         rows,
-        (r) =>
-          r.is_subscription_order
+        (row) =>
+          row.is_subscription_order
             ? 'Subscription'
             : 'Non-subscription'
       )
@@ -1008,8 +801,8 @@ export async function GET(req: NextRequest) {
     toSortedLabelValue(
       groupCount(
         rows,
-        (r) =>
-          r.delivery_type
+        (row) =>
+          row.delivery_type
       )
     );
 
@@ -1028,9 +821,9 @@ export async function GET(req: NextRequest) {
       }
     > = {};
 
-  for (const r of rows) {
+  for (const row of rows) {
     const name =
-      r.restaurant_name;
+      row.restaurant_name;
 
     if (!name) {
       continue;
@@ -1043,24 +836,24 @@ export async function GET(req: NextRequest) {
         sales: 0,
         orders: 0,
         commission: 0,
-        payout: 0
+        payout: 0,
       };
     }
 
     restaurantAgg[name]
       .sales +=
-      num(r.subtotal);
+      num(row.subtotal);
 
     restaurantAgg[name]
       .orders += 1;
 
     restaurantAgg[name]
       .commission +=
-      num(r.commission);
+      num(row.commission);
 
     restaurantAgg[name]
       .payout +=
-      num(r.payout_amount);
+      num(row.payout_amount);
   }
 
   const restaurantPerformance =
@@ -1068,38 +861,38 @@ export async function GET(req: NextRequest) {
       restaurantAgg
     )
       .map(
-        ([restaurantName, v]) => ({
+        ([restaurantName, value]) => ({
           restaurantName,
 
           sales:
             Math.round(
-              v.sales * 100
+              value.sales * 100
             ) / 100,
 
           orders:
-            v.orders,
+            value.orders,
 
           avgOrderValue:
-            v.orders > 0
+            value.orders > 0
               ? Math.round(
                   (
-                    v.sales /
-                    v.orders
+                    value.sales /
+                    value.orders
                   ) * 100
                 ) / 100
               : null,
 
           commission:
             Math.round(
-              v.commission *
+              value.commission *
                 100
             ) / 100,
 
           payout:
             Math.round(
-              v.payout *
+              value.payout *
                 100
-            ) / 100
+            ) / 100,
         })
       )
       .sort(
@@ -1123,6 +916,6 @@ export async function GET(req: NextRequest) {
     complaintsByReason,
     subscriptionBreakdown,
     deliveryTypeBreakdown,
-    restaurantPerformance
+    restaurantPerformance,
   });
 }
