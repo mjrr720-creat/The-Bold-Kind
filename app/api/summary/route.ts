@@ -73,16 +73,6 @@ const rows = (restaurantRows ?? []) as Array<{
 restaurantNames = rows
   .map((r) => r.restaurant_name)
   .filter((name): name is string => Boolean(name));
-
-    // Explicitly type the RPC result to prevent
-    // "unknown[] is not assignable to string[]" TypeScript error.
-    const rows = (restaurantRows ?? []) as Array<{
-      restaurant_name: string | null;
-    }>;
-
-    restaurantNames = rows
-      .map((r) => r.restaurant_name)
-      .filter((name): name is string => Boolean(name));
   } catch (err: any) {
     return NextResponse.json(
       {
