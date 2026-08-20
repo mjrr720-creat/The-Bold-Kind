@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, fetchAllRows } from '@/lib/supabaseAdmin';
-import { differenceInCalendarDays, subDays, formatISO } from 'date-fns';
+import {
+  differenceInCalendarDays,
+  subDays,
+  formatISO,
+} from 'date-fns';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-// Fetches every order row matching the filter window (and the equivalent
-// previous window), then aggregates in memory.
+// Fetches every order row matching the filter window
+// and the equivalent previous window, then aggregates in memory.
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
 
@@ -17,8 +21,7 @@ export async function GET(req: NextRequest) {
   if (!startDate || !endDate) {
     return NextResponse.json(
       {
-        error:
-          'startDate and endDate are required (yyyy-MM-dd).',
+        error: 'startDate and endDate are required (yyyy-MM-dd).',
       },
       { status: 400 }
     );
@@ -34,7 +37,7 @@ export async function GET(req: NextRequest) {
 
   const fetchOrders = (rangeStart: Date, rangeEnd: Date) =>
     fetchAllRows<any>((from, to) => {
-      let q = supabaseAdmin
+      let query = supabaseAdmin
         .from('orders')
         .select('*')
         .gte('order_date', rangeStart.toISOString())
@@ -42,41 +45,53 @@ export async function GET(req: NextRequest) {
         .range(from, to);
 
       if (restaurant !== 'All') {
-        q = q.eq('restaurant_name', restaurant);
+        query = query.eq('restaurant_name', restaurant);
       }
 
-      return q;
+      return query;
     });
 
-  let current: any[];
-  let previous: any[];
-  let restaurantNames: string[];
+  let current: any[] = [];
+  let previous: any[] = [];
+  let restaurantNames: string[] = [];
 
   try {
+    // Fetch current and previous period orders.
     [current, previous] = await Promise.all([
       fetchOrders(start, end),
       fetchOrders(prevStart, prevEnd),
     ]);
 
     // Get distinct restaurant names for the filter dropdown.
-    const { data: restaurantRows, error: restaurantErr } =
-  await supabaseAdmin.rpc('distinct_restaurants');
+    const {
+      data: restaurantRows,
+      error: restaurantErr,
+    } = await supabaseAdmin.rpc('distinct_restaurants');
 
-if (restaurantErr) {
-  throw new Error(restaurantErr.message);
-}
+    if (restaurantErr) {
+      throw new Error(restaurantErr.message);
+    }
 
-const rows = (restaurantRows ?? []) as Array<{
-  restaurant_name: string | null;
-}>;
+    // Explicitly type the RPC result so TypeScript knows
+    // restaurant_name is a string or null.
+    const restaurantNameRows =
+      (restaurantRows ?? []) as Array<{
+        restaurant_name: string | null;
+      }>;
 
-restaurantNames = rows
-  .map((r) => r.restaurant_name)
-  .filter((name): name is string => Boolean(name));
+    restaurantNames = restaurantNameRows
+      .map((restaurantRow) => restaurantRow.restaurant_name)
+      .filter(
+        (name): name is string =>
+          typeof name === 'string' && name.trim().length > 0
+      );
+
+    // Remove duplicate restaurant names just in case.
+    restaurantNames = Array.from(new Set(restaurantNames)).sort();
   } catch (err: any) {
     return NextResponse.json(
       {
-        error: err.message ?? 'Failed to load orders',
+        error: err?.message ?? 'Failed to load orders',
       },
       { status: 500 }
     );
@@ -86,47 +101,51 @@ restaurantNames = rows
   // Aggregation helpers
   // ---------------------------------------------------------------------
 
-  const sum = (rows: any[], key: string) =>
-    rows.reduce((acc, r) => {
-      const n = Number(r[key]);
+  const sum = (orderRows: any[], key: string) =>
+    orderRows.reduce((acc, row) => {
+      const numberValue = Number(row[key]);
 
-      return acc + (Number.isFinite(n) ? n : 0);
+      return (
+        acc +
+        (Number.isFinite(numberValue) ? numberValue : 0)
+      );
     }, 0);
 
-  const avg = (rows: any[], key: string) => {
-    const vals = rows
-      .map((r) => Number(r[key]))
-      .filter((v) => Number.isFinite(v));
+  const avg = (orderRows: any[], key: string) => {
+    const values = orderRows
+      .map((row) => Number(row[key]))
+      .filter((value) => Number.isFinite(value));
 
-    if (vals.length === 0) {
+    if (values.length === 0) {
       return null;
     }
 
     return (
       Math.round(
-        (vals.reduce((a, b) => a + b, 0) / vals.length) * 100
+        (values.reduce((a, b) => a + b, 0) / values.length) *
+          100
       ) / 100
     );
   };
 
   // Mirrors DATEDIFF(startKey, endKey, MINUTE)
   const avgMinutesDiff = (
-    rows: any[],
+    orderRows: any[],
     startKey: string,
     endKey: string
   ) => {
-    const diffs: number[] = [];
+    const differences: number[] = [];
 
-    for (const r of rows) {
-      const startVal = r[startKey];
-      const endVal = r[endKey];
+    for (const row of orderRows) {
+      const startValue = row[startKey];
+      const endValue = row[endKey];
 
-      if (!startVal || !endVal) {
+      if (!startValue || !endValue) {
         continue;
       }
 
-      const startTime = new Date(startVal).getTime();
-      const endTime = new Date(endVal).getTime();
+      const startTime = new Date(startValue).getTime();
+      const endTime = new Date(endValue).getTime();
 
       if (
         !Number.isFinite(startTime) ||
@@ -135,16 +154,18 @@ restaurantNames = rows
         continue;
       }
 
-      diffs.push((endTime - startTime) / 60000);
+      differences.push((endTime - startTime) / 60000);
     }
 
-    if (diffs.length === 0) {
+    if (differences.length === 0) {
       return null;
     }
 
     return (
       Math.round(
-        (diffs.reduce((a, b) => a + b, 0) / diffs.length) * 100
+        (differences.reduce((a, b) => a + b, 0) /
+          differences.length) *
+          100
       ) / 100
     );
   };
@@ -154,27 +175,28 @@ restaurantNames = rows
     row: any,
     key: string
   ): number | null => {
-    const val = row[key];
+    const value = row[key];
 
-    if (!val) {
+    if (!value) {
       return null;
     }
 
-    const d = new Date(val);
+    const date = new Date(value);
 
-    return Number.isFinite(d.getTime())
-      ? d.getUTCHours()
+    return Number.isFinite(date.getTime())
+      ? date.getUTCHours()
       : null;
   };
 
   const avgHourOf = (
-    rows: any[],
+    orderRows: any[],
     key: string
   ) => {
-    const hours = rows
-      .map((r) => hourOf(r, key))
+    const hours = orderRows
+      .map((row) => hourOf(row, key))
       .filter(
-        (h): h is number => h !== null
+        (hour): hour is number =>
+          hour !== null
       );
 
     if (hours.length === 0) {
@@ -196,7 +218,7 @@ restaurantNames = rows
 
   const totalStores = new Set(
     current
-      .map((r: any) => r.store_id)
+      .map((row: any) => row.store_id)
       .filter(
         (id) =>
           id !== null &&
@@ -211,16 +233,16 @@ restaurantNames = rows
   const paymentMethodBreakdown = Object.entries(
     current.reduce(
       (
-        acc: Record<string, number>,
-        r: any
+        accumulator: Record<string, number>,
+        row: any
       ) => {
         const method =
-          r.payment_method || 'Unknown';
+          row.payment_method || 'Unknown';
 
-        acc[method] =
-          (acc[method] || 0) + 1;
+        accumulator[method] =
+          (accumulator[method] || 0) + 1;
 
-        return acc;
+        return accumulator;
       },
       {}
     )
@@ -238,9 +260,9 @@ restaurantNames = rows
     (_, hour) => ({
       hour,
       count: current.filter(
-        (r: any) =>
+        (row: any) =>
           hourOf(
-            r,
+            row,
             'accepted_at'
           ) === hour
       ).length,
@@ -254,23 +276,23 @@ restaurantNames = rows
   const dailyBuckets =
     current.reduce(
       (
-        acc: Record<string, any[]>,
-        r: any
+        accumulator: Record<string, any[]>,
+        row: any
       ) => {
-        if (!r.order_date) {
-          return acc;
+        if (!row.order_date) {
+          return accumulator;
         }
 
         const date = formatISO(
-          new Date(r.order_date),
+          new Date(row.order_date),
           {
             representation: 'date',
           }
         );
 
-        (acc[date] ??= []).push(r);
+        (accumulator[date] ??= []).push(row);
 
-        return acc;
+        return accumulator;
       },
       {}
     );
@@ -298,7 +320,9 @@ restaurantNames = rows
       }
     );
 
-    const rows =
+    // Use a unique variable name here to avoid
+    // any possible "rows already declared" conflict.
+    const dailyOrderRows =
       dailyBuckets[date] ?? [];
 
     dailyFinancials.push({
@@ -306,18 +330,24 @@ restaurantNames = rows
 
       sales:
         Math.round(
-          sum(rows, 'subtotal') * 100
+          sum(
+            dailyOrderRows,
+            'subtotal'
+          ) * 100
         ) / 100,
 
       commission:
         Math.round(
-          sum(rows, 'commission') * 100
+          sum(
+            dailyOrderRows,
+            'commission'
+          ) * 100
         ) / 100,
 
       payout:
         Math.round(
           sum(
-            rows,
+            dailyOrderRows,
             'payout_amount'
           ) * 100
         ) / 100,
@@ -325,7 +355,7 @@ restaurantNames = rows
 
     dailyOrders.push({
       date,
-      count: rows.length,
+      count: dailyOrderRows.length,
     });
   }
 
@@ -337,12 +367,14 @@ restaurantNames = rows
     // Main KPIs
     totalStores,
 
-    totalOrders:
-      current.length,
+    totalOrders: current.length,
 
     totalSales:
       Math.round(
-        sum(current, 'subtotal') * 100
+        sum(
+          current,
+          'subtotal'
+        ) * 100
       ) / 100,
 
     payoutAmount:
@@ -461,7 +493,6 @@ restaurantNames = rows
     dailyOrders,
 
     // Restaurant filter
-    restaurants:
-      restaurantNames,
+    restaurants: restaurantNames,
   });
 }
