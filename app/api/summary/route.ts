@@ -9,26 +9,35 @@ import {
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-// Fetches every order row matching the filter window
-// and the equivalent previous window, then aggregates in memory.
+// Fetch current period + equivalent previous period,
+// then aggregate the normalized orders_dashboard view.
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
 
-  const restaurant = searchParams.get('restaurant') ?? 'All';
-  const startDate = searchParams.get('startDate');
-  const endDate = searchParams.get('endDate');
+  const restaurant =
+    searchParams.get('restaurant') ?? 'All';
+
+  const startDate =
+    searchParams.get('startDate');
+
+  const endDate =
+    searchParams.get('endDate');
 
   if (!startDate || !endDate) {
     return NextResponse.json(
       {
-        error: 'startDate and endDate are required (yyyy-MM-dd).',
+        error:
+          'startDate and endDate are required (yyyy-MM-dd).',
       },
       { status: 400 }
     );
   }
 
-  const start = new Date(`${startDate}T00:00:00Z`);
-  const end = new Date(`${endDate}T23:59:59Z`);
+  const start =
+    new Date(`${startDate}T00:00:00Z`);
+
+  const end =
+    new Date(`${endDate}T23:59:59Z`);
 
   if (
     !Number.isFinite(start.getTime()) ||
@@ -36,225 +45,294 @@ export async function GET(req: NextRequest) {
   ) {
     return NextResponse.json(
       {
-        error: 'Invalid startDate or endDate.',
+        error:
+          'Invalid startDate or endDate.',
       },
       { status: 400 }
     );
   }
 
-  const spanDays = differenceInCalendarDays(end, start) + 1;
+  const spanDays =
+    differenceInCalendarDays(
+      end,
+      start
+    ) + 1;
 
-  const prevEnd = subDays(start, 1);
-  const prevStart = subDays(prevEnd, spanDays - 1);
+  const prevEnd =
+    subDays(start, 1);
+
+  const prevStart =
+    subDays(
+      prevEnd,
+      spanDays - 1
+    );
 
   /*
-   * IMPORTANT:
-   * Read from orders_dashboard instead of public.orders.
+   * orders_dashboard exposes normalized snake_case fields.
    *
-   * orders_dashboard normalizes:
-   * - financial fields to numeric
-   * - boolean fields to boolean
-   * - blank text values to NULL
-   *
-   * This keeps the aggregation below reliable.
+   * order_date is text in the source/view, so the date boundaries
+   * are kept in the same sortable "YYYY-MM-DD HH:mm" style.
    */
-  const fetchOrders = (rangeStart: Date, rangeEnd: Date) =>
-    fetchAllRows<any>((from, to) => {
-      let query = supabaseAdmin
-        .from('orders_dashboard')
-        .select('*')
-        .gte('order_date', rangeStart.toISOString())
-        .lte('order_date', rangeEnd.toISOString())
-        .range(from, to);
+  const fetchOrders = (
+    rangeStart: Date,
+    rangeEnd: Date
+  ) => {
+    const rangeStartDb =
+      `${formatISO(rangeStart, {
+        representation: 'date',
+      })} 00:00`;
 
-      if (restaurant !== 'All') {
-        query = query.eq('restaurant_name', restaurant);
+    const rangeEndDb =
+      `${formatISO(rangeEnd, {
+        representation: 'date',
+      })} 23:59`;
+
+    return fetchAllRows<any>(
+      (from, to) => {
+        let query = supabaseAdmin
+          .from('orders_dashboard')
+          .select('*')
+          .gte(
+            'order_date',
+            rangeStartDb
+          )
+          .lte(
+            'order_date',
+            rangeEndDb
+          )
+          .range(
+            from,
+            to
+          );
+
+        if (
+          restaurant !== 'All'
+        ) {
+          query = query.eq(
+            'restaurant_name',
+            restaurant
+          );
+        }
+
+        return query;
       }
-
-      return query;
-    });
+    );
+  };
 
   let current: any[] = [];
   let previous: any[] = [];
   let restaurantNames: string[] = [];
 
   try {
-    /*
-     * Fetch current and previous period orders.
-     */
-    [current, previous] = await Promise.all([
-      fetchOrders(start, end),
-      fetchOrders(prevStart, prevEnd),
-    ]);
+    [current, previous] =
+      await Promise.all([
+        fetchOrders(
+          start,
+          end
+        ),
+        fetchOrders(
+          prevStart,
+          prevEnd
+        ),
+      ]);
 
     /*
-     * Get distinct restaurant names for the filter dropdown.
-     *
-     * Keep using the existing RPC because it already returns
-     * restaurant_name according to the current project structure.
+     * IMPORTANT:
+     * Use the NEW RPC created for the new Supabase project.
      */
     const {
       data: restaurantRows,
       error: restaurantErr,
-    } = await supabaseAdmin.rpc('distinct_restaurants');
-
-    if (restaurantErr) {
-      throw new Error(restaurantErr.message);
-    }
-
-    /*
-     * Explicitly type the RPC result so TypeScript knows
-     * restaurant_name is a string or null.
-     */
-    const restaurantNameRows =
-      (restaurantRows ?? []) as Array<{
-        restaurant_name: string | null;
-      }>;
-
-    restaurantNames = restaurantNameRows
-      .map((restaurantRow) => restaurantRow.restaurant_name)
-      .filter(
-        (name): name is string =>
-          typeof name === 'string' && name.trim().length > 0
+    } =
+      await supabaseAdmin.rpc(
+        'distinct_restaurants_dashboard'
       );
 
-    /*
-     * Remove duplicate restaurant names just in case.
-     */
-    restaurantNames = Array.from(new Set(restaurantNames)).sort();
+    if (restaurantErr) {
+      throw new Error(
+        restaurantErr.message
+      );
+    }
+
+    const names: string[] =
+      [];
+
+    for (
+      const row of
+      (restaurantRows ?? []) as Array<{
+        restaurant_name?:
+          | string
+          | null;
+      }>
+    ) {
+      const name =
+        String(
+          row.restaurant_name ??
+            ''
+        ).trim();
+
+      if (
+        name &&
+        !names.includes(name)
+      ) {
+        names.push(name);
+      }
+    }
+
+    restaurantNames =
+      names.sort(
+        (a, b) =>
+          a.localeCompare(b)
+      );
   } catch (err: any) {
     return NextResponse.json(
       {
-        error: err?.message ?? 'Failed to load orders',
+        error:
+          err?.message ??
+          'Failed to load dashboard data.',
       },
       { status: 500 }
     );
   }
 
-  // ---------------------------------------------------------------------
-  // Aggregation helpers
-  // ---------------------------------------------------------------------
+  // -------------------------------------------------------------------
+  // Helpers
+  // -------------------------------------------------------------------
 
-  /*
-   * Safely sum numeric fields.
-   *
-   * orders_dashboard already returns financial fields as numeric,
-   * but Number() keeps this helper defensive.
-   */
-  const sum = (orderRows: any[], key: string) =>
-    orderRows.reduce((acc, row) => {
-      const numberValue = Number(row[key]);
+  const sum = (
+    rows: any[],
+    key: string
+  ) =>
+    rows.reduce(
+      (total, row) => {
+        const numberValue =
+          Number(row[key]);
 
-      return (
-        acc +
-        (Number.isFinite(numberValue) ? numberValue : 0)
-      );
-    }, 0);
-
-  /*
-   * Average numeric value.
-   */
-  const avg = (orderRows: any[], key: string) => {
-    const values = orderRows
-      .map((row) => Number(row[key]))
-      .filter((value) => Number.isFinite(value));
-
-    if (values.length === 0) {
-      return null;
-    }
-
-    return (
-      Math.round(
-        (values.reduce((a, b) => a + b, 0) / values.length) * 100
-      ) / 100
+        return (
+          total +
+          (Number.isFinite(
+            numberValue
+          )
+            ? numberValue
+            : 0)
+        );
+      },
+      0
     );
-  };
 
-  /*
-   * Returns the average difference in minutes between two timestamps.
-   */
   const avgMinutesDiff = (
-    orderRows: any[],
+    rows: any[],
     startKey: string,
     endKey: string
   ) => {
-    const differences: number[] = [];
+    const differences: number[] =
+      [];
 
-    for (const row of orderRows) {
-      const startValue = row[startKey];
-      const endValue = row[endKey];
+    for (const row of rows) {
+      const startValue =
+        row[startKey];
 
-      if (!startValue || !endValue) {
-        continue;
-      }
-
-      const startTime = new Date(startValue).getTime();
-      const endTime = new Date(endValue).getTime();
+      const endValue =
+        row[endKey];
 
       if (
-        !Number.isFinite(startTime) ||
-        !Number.isFinite(endTime)
+        !startValue ||
+        !endValue
       ) {
         continue;
       }
 
-      const difference = (endTime - startTime) / 60000;
+      const startTime =
+        new Date(
+          startValue
+        ).getTime();
 
-      /*
-       * Ignore negative durations caused by bad/misaligned
-       * timestamps rather than allowing them to distort averages.
-       */
+      const endTime =
+        new Date(
+          endValue
+        ).getTime();
+
+      if (
+        !Number.isFinite(
+          startTime
+        ) ||
+        !Number.isFinite(
+          endTime
+        )
+      ) {
+        continue;
+      }
+
+      const difference =
+        (endTime -
+          startTime) /
+        60000;
+
       if (difference >= 0) {
-        differences.push(difference);
+        differences.push(
+          difference
+        );
       }
     }
 
-    if (differences.length === 0) {
+    if (
+      differences.length === 0
+    ) {
       return null;
     }
 
     return (
       Math.round(
-        (differences.reduce((a, b) => a + b, 0) /
-          differences.length) *
-          100
+        (
+          differences.reduce(
+            (a, b) => a + b,
+            0
+          ) /
+          differences.length
+        ) * 100
       ) / 100
     );
   };
 
-  /*
-   * Returns UTC hour from a timestamp.
-   */
   const hourOf = (
     row: any,
     key: string
   ): number | null => {
-    const value = row[key];
+    const value =
+      row[key];
 
     if (!value) {
       return null;
     }
 
-    const date = new Date(value);
+    const date =
+      new Date(value);
 
-    return Number.isFinite(date.getTime())
+    return Number.isFinite(
+      date.getTime()
+    )
       ? date.getUTCHours()
       : null;
   };
 
-  /*
-   * Average order hour.
-   */
   const avgHourOf = (
-    orderRows: any[],
+    rows: any[],
     key: string
   ) => {
-    const hours = orderRows
-      .map((row) => hourOf(row, key))
-      .filter(
-        (hour): hour is number =>
-          hour !== null
-      );
+    const hours =
+      rows
+        .map((row) =>
+          hourOf(
+            row,
+            key
+          )
+        )
+        .filter(
+          (
+            hour
+          ): hour is number =>
+            hour !== null
+        );
 
     if (hours.length === 0) {
       return null;
@@ -262,98 +340,134 @@ export async function GET(req: NextRequest) {
 
     return (
       Math.round(
-        (hours.reduce((a, b) => a + b, 0) /
-          hours.length) *
-          100
+        (
+          hours.reduce(
+            (a, b) => a + b,
+            0
+          ) /
+          hours.length
+        ) * 100
       ) / 100
     );
   };
 
-  // ---------------------------------------------------------------------
+  // -------------------------------------------------------------------
   // Total Stores
-  // ---------------------------------------------------------------------
+  // -------------------------------------------------------------------
 
-  const totalStores = new Set(
-    current
-      .map((row: any) => row.store_id)
-      .filter(
-        (id) =>
-          id !== null &&
-          id !== undefined
-      )
-  ).size;
+  const totalStores =
+    new Set(
+      current
+        .map(
+          (row: any) =>
+            row.store_id
+        )
+        .filter(
+          (id) =>
+            id !== null &&
+            id !== undefined
+        )
+    ).size;
 
-  // ---------------------------------------------------------------------
+  // -------------------------------------------------------------------
   // Payment Method Breakdown
-  // ---------------------------------------------------------------------
+  // -------------------------------------------------------------------
 
-  const paymentMethodBreakdown = Object.entries(
-    current.reduce(
-      (
-        accumulator: Record<string, number>,
-        row: any
-      ) => {
-        const method =
-          row.payment_method || 'Unknown';
+  const paymentMethodBreakdown =
+    Object.entries(
+      current.reduce(
+        (
+          accumulator: Record<
+            string,
+            number
+          >,
+          row: any
+        ) => {
+          const method =
+            row.payment_method ||
+            'Unknown';
 
-        accumulator[method] =
-          (accumulator[method] || 0) + 1;
+          accumulator[method] =
+            (accumulator[
+              method
+            ] || 0) + 1;
 
-        return accumulator;
-      },
-      {}
-    )
-  ).map(([method, count]) => ({
-    method,
-    count: count as number,
-  }));
+          return accumulator;
+        },
+        {}
+      )
+    ).map(
+      ([method, count]) => ({
+        method,
+        count:
+          count as number,
+      })
+    );
 
-  // ---------------------------------------------------------------------
-  // Hourly Order Traffic
-  // ---------------------------------------------------------------------
+  // -------------------------------------------------------------------
+  // Hourly Traffic
+  // -------------------------------------------------------------------
 
-  const hourlyTraffic = Array.from(
-    { length: 24 },
-    (_, hour) => ({
-      hour,
-      count: current.filter(
-        (row: any) =>
-          hourOf(
-            row,
-            'accepted_at'
-          ) === hour
-      ).length,
-    })
-  );
+  const hourlyTraffic =
+    Array.from(
+      { length: 24 },
+      (_, hour) => ({
+        hour,
 
-  // ---------------------------------------------------------------------
+        count:
+          current.filter(
+            (row: any) =>
+              hourOf(
+                row,
+                'accepted_at'
+              ) === hour
+          ).length,
+      })
+    );
+
+  // -------------------------------------------------------------------
   // Daily Series
-  // ---------------------------------------------------------------------
+  // -------------------------------------------------------------------
 
   const dailyBuckets =
     current.reduce(
       (
-        accumulator: Record<string, any[]>,
+        accumulator: Record<
+          string,
+          any[]
+        >,
         row: any
       ) => {
         if (!row.order_date) {
           return accumulator;
         }
 
-        const parsedDate = new Date(row.order_date);
+        const parsedDate =
+          new Date(
+            row.order_date
+          );
 
-        if (!Number.isFinite(parsedDate.getTime())) {
+        if (
+          !Number.isFinite(
+            parsedDate.getTime()
+          )
+        ) {
           return accumulator;
         }
 
-        const date = formatISO(
-          parsedDate,
-          {
-            representation: 'date',
-          }
-        );
+        const date =
+          formatISO(
+            parsedDate,
+            {
+              representation:
+                'date',
+            }
+          );
 
-        (accumulator[date] ??= []).push(row);
+        (
+          accumulator[date] ??
+          (accumulator[date] = [])
+        ).push(row);
 
         return accumulator;
       },
@@ -372,19 +486,29 @@ export async function GET(req: NextRequest) {
     count: number;
   }[] = [];
 
-  for (let i = 0; i < spanDays; i++) {
-    const date = formatISO(
-      subDays(
-        end,
-        spanDays - 1 - i
-      ),
-      {
-        representation: 'date',
-      }
-    );
+  for (
+    let i = 0;
+    i < spanDays;
+    i++
+  ) {
+    const date =
+      formatISO(
+        subDays(
+          end,
+          spanDays -
+            1 -
+            i
+        ),
+        {
+          representation:
+            'date',
+        }
+      );
 
     const dailyOrderRows =
-      dailyBuckets[date] ?? [];
+      dailyBuckets[
+        date
+      ] ?? [];
 
     dailyFinancials.push({
       date,
@@ -416,22 +540,20 @@ export async function GET(req: NextRequest) {
 
     dailyOrders.push({
       date,
-      count: dailyOrderRows.length,
+      count:
+        dailyOrderRows.length,
     });
   }
 
-  // ---------------------------------------------------------------------
+  // -------------------------------------------------------------------
   // Final Response
-  // ---------------------------------------------------------------------
+  // -------------------------------------------------------------------
 
   return NextResponse.json({
-    // -------------------------------------------------------------------
-    // Main KPIs
-    // -------------------------------------------------------------------
-
     totalStores,
 
-    totalOrders: current.length,
+    totalOrders:
+      current.length,
 
     totalSales:
       Math.round(
@@ -465,11 +587,6 @@ export async function GET(req: NextRequest) {
         ) * 100
       ) / 100,
 
-    /*
-     * FIX:
-     * orders_dashboard uses payout_after_food_cost
-     * instead of Payout_after_Food_Cost.
-     */
     payoutAfterFoodCost:
       Math.round(
         sum(
@@ -485,10 +602,6 @@ export async function GET(req: NextRequest) {
           'voucher_funded_by_you'
         ) * 100
       ) / 100,
-
-    // -------------------------------------------------------------------
-    // Time KPIs
-    // -------------------------------------------------------------------
 
     avgOrderHour:
       avgHourOf(
@@ -516,10 +629,6 @@ export async function GET(req: NextRequest) {
         'in_delivery_at',
         'delivered_at'
       ),
-
-    // -------------------------------------------------------------------
-    // Previous Period
-    // -------------------------------------------------------------------
 
     previous: {
       totalOrders:
@@ -558,10 +667,6 @@ export async function GET(req: NextRequest) {
         ) / 100,
     },
 
-    // -------------------------------------------------------------------
-    // Charts
-    // -------------------------------------------------------------------
-
     paymentMethodBreakdown,
 
     hourlyTraffic,
@@ -570,10 +675,7 @@ export async function GET(req: NextRequest) {
 
     dailyOrders,
 
-    // -------------------------------------------------------------------
-    // Restaurant Filter
-    // -------------------------------------------------------------------
-
-    restaurants: restaurantNames,
+    restaurants:
+      restaurantNames,
   });
 }
