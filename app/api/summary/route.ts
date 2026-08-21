@@ -9,671 +9,1047 @@ import {
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-// Fetch current period + equivalent previous period,
-// then aggregate the normalized orders_dashboard view.
-export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
+type OrderRow = {
+  store_id?: string | number | null;
+  restaurant_name?: string | null;
 
-  const restaurant =
-    searchParams.get('restaurant') ?? 'All';
+  order_date?: string | null;
+  accepted_at?: string | null;
+  ready_to_pickup_at?: string | null;
+  estimated_delivery_at?: string | null;
+  delivered_at?: string | null;
+  in_delivery_at?: string | null;
 
-  const startDate =
-    searchParams.get('startDate');
+  subtotal?: number | string | null;
+  payout_amount?: number | string | null;
+  commission?: number | string | null;
 
-  const endDate =
-    searchParams.get('endDate');
+  marketing_fees?: number | string | null;
+  tax_amount?: number | string | null;
+  payout_after_food_cost?: number | string | null;
+  voucher_funded_by_you?: number | string | null;
 
-  if (!startDate || !endDate) {
-    return NextResponse.json(
-      {
-        error:
-          'startDate and endDate are required (yyyy-MM-dd).',
-      },
-      { status: 400 }
-    );
+  payment_method?: string | null;
+};
+
+/**
+ * Only fetch fields actually required by this endpoint.
+ *
+ * This replaces the old:
+ *
+ *   .select('*')
+ *
+ * which was transferring every column from orders_dashboard.
+ */
+const SUMMARY_COLUMNS = [
+  'order_id',
+  'store_id',
+  'restaurant_name',
+  'order_date',
+  'accepted_at',
+  'ready_to_pickup_at',
+  'estimated_delivery_at',
+  'delivered_at',
+  'in_delivery_at',
+  'subtotal',
+  'commission',
+  'payout_amount',
+  'marketing_fees',
+  'tax_amount',
+  'payout_after_food_cost',
+  'voucher_funded_by_you',
+  'payment_method',
+].join(',');
+
+const toNumber = (
+  value: unknown,
+): number => {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ''
+  ) {
+    return 0;
   }
 
-  const start =
-    new Date(`${startDate}T00:00:00Z`);
+  const numberValue = Number(value);
 
-  const end =
-    new Date(`${endDate}T23:59:59Z`);
+  return Number.isFinite(numberValue)
+    ? numberValue
+    : 0;
+};
+
+const round2 = (
+  value: number,
+): number => {
+  return Math.round(value * 100) / 100;
+};
+
+const parseDate = (
+  value: unknown,
+): Date | null => {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(
+    String(value),
+  );
 
   if (
-    !Number.isFinite(start.getTime()) ||
-    !Number.isFinite(end.getTime())
+    !Number.isFinite(
+      date.getTime(),
+    )
   ) {
-    return NextResponse.json(
-      {
-        error:
-          'Invalid startDate or endDate.',
-      },
-      { status: 400 }
-    );
+    return null;
   }
 
-  const spanDays =
-    differenceInCalendarDays(
-      end,
-      start
-    ) + 1;
+  return date;
+};
 
-  const prevEnd =
-    subDays(start, 1);
+/**
+ * Matches the previous Power BI-style
+ * whole-minute calculation.
+ */
+const minuteDifference = (
+  startValue: unknown,
+  endValue: unknown,
+): number | null => {
+  const start =
+    parseDate(startValue);
 
-  const prevStart =
-    subDays(
-      prevEnd,
-      spanDays - 1
-    );
+  const end =
+    parseDate(endValue);
 
-  /*
-   * orders_dashboard exposes normalized snake_case fields.
-   *
-   * order_date is text in the source/view, so the date boundaries
-   * are kept in the same sortable "YYYY-MM-DD HH:mm" style.
-   *
-   * IMPORTANT:
-   * We also apply a deterministic ORDER BY before pagination.
-   * Without a stable ordering, PostgREST pagination can return
-   * overlapping/missing rows across multiple .range() requests.
-   */
-  const fetchOrders = (
-    rangeStart: Date,
-    rangeEnd: Date
-  ) => {
-    const rangeStartDb =
-      `${formatISO(rangeStart, {
-        representation: 'date',
-      })} 00:00`;
+  if (!start || !end) {
+    return null;
+  }
 
-    const rangeEndDb =
-      `${formatISO(rangeEnd, {
-        representation: 'date',
-      })} 23:59`;
+  return Math.trunc(
+    (
+      end.getTime() -
+      start.getTime()
+    ) / 60000,
+  );
+};
 
-    return fetchAllRows<any>(
-      (from, to) => {
-        let query = supabaseAdmin
-          .from('orders_dashboard')
-          .select('*')
-          .gte(
-            'order_date',
-            rangeStartDb
-          )
-          .lte(
-            'order_date',
-            rangeEndDb
-          )
-          // Stable pagination order.
-          .order(
-            'order_id',
-            {
-              ascending: true,
-            }
-          )
-          .order(
-            'restaurant_name',
-            {
-              ascending: true,
-            }
-          )
-          .range(
-            from,
-            to
-          );
+const getUtcHour = (
+  value: unknown,
+): number | null => {
+  const date =
+    parseDate(value);
 
-        if (
-          restaurant !== 'All'
-        ) {
-          query = query.eq(
-            'restaurant_name',
-            restaurant
-          );
-        }
+  if (!date) {
+    return null;
+  }
 
-        return query;
-      }
-    );
-  };
+  return date.getUTCHours();
+};
 
-  let current: any[] = [];
-  let previous: any[] = [];
-  let restaurantNames: string[] = [];
-
+export async function GET(
+  req: NextRequest,
+) {
   try {
-    [current, previous] =
-      await Promise.all([
+    const { searchParams } =
+      new URL(req.url);
+
+    const restaurant =
+      searchParams.get(
+        'restaurant',
+      ) ?? 'All';
+
+    const startDate =
+      searchParams.get(
+        'startDate',
+      );
+
+    const endDate =
+      searchParams.get(
+        'endDate',
+      );
+
+    /**
+     * ------------------------------------------------------------
+     * VALIDATION
+     * ------------------------------------------------------------
+     */
+
+    if (
+      !startDate ||
+      !endDate
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'startDate and endDate are required (yyyy-MM-dd).',
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    const datePattern =
+      /^\d{4}-\d{2}-\d{2}$/;
+
+    if (
+      !datePattern.test(
+        startDate,
+      ) ||
+      !datePattern.test(
+        endDate,
+      )
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'Invalid startDate or endDate. Expected yyyy-MM-dd.',
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    const start =
+      new Date(
+        `${startDate}T00:00:00Z`,
+      );
+
+    const end =
+      new Date(
+        `${endDate}T00:00:00Z`,
+      );
+
+    if (
+      !Number.isFinite(
+        start.getTime(),
+      ) ||
+      !Number.isFinite(
+        end.getTime(),
+      )
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'Invalid startDate or endDate.',
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    if (
+      end.getTime() <
+      start.getTime()
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'endDate cannot be earlier than startDate.',
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    /**
+     * Exclusive end boundary.
+     *
+     * For:
+     *
+     *   2026-08-01 → 2026-08-21
+     *
+     * database query becomes:
+     *
+     *   >= 2026-08-01 00:00
+     *   <  2026-08-22 00:00
+     */
+    const endExclusive =
+      new Date(end);
+
+    endExclusive.setUTCDate(
+      endExclusive.getUTCDate() +
+        1,
+    );
+
+    /**
+     * Number of days in selected period.
+     */
+    const spanDays =
+      differenceInCalendarDays(
+        end,
+        start,
+      ) + 1;
+
+    /**
+     * ------------------------------------------------------------
+     * PREVIOUS PERIOD
+     * ------------------------------------------------------------
+     *
+     * Same number of days immediately before
+     * the selected period.
+     */
+    const previousEnd =
+      subDays(start, 1);
+
+    const previousStart =
+      subDays(
+        previousEnd,
+        spanDays - 1,
+      );
+
+    /**
+     * ------------------------------------------------------------
+     * DATABASE FETCH
+     * ------------------------------------------------------------
+     *
+     * Important optimization:
+     *
+     * We no longer use:
+     *
+     *   .select('*')
+     *
+     * Only required columns are transferred.
+     */
+    const fetchOrders = (
+      rangeStart: Date,
+      rangeEndExclusive: Date,
+    ): Promise<OrderRow[]> => {
+      const rangeStartDb =
+        `${formatISO(
+          rangeStart,
+          {
+            representation:
+              'date',
+          },
+        )} 00:00`;
+
+      const rangeEndDb =
+        `${formatISO(
+          rangeEndExclusive,
+          {
+            representation:
+              'date',
+          },
+        )} 00:00`;
+
+      return fetchAllRows<OrderRow>(
+        (from, to) => {
+          let query =
+            supabaseAdmin
+              .from(
+                'orders_dashboard',
+              )
+              .select(
+                SUMMARY_COLUMNS,
+              )
+              .gte(
+                'order_date',
+                rangeStartDb,
+              )
+              .lt(
+                'order_date',
+                rangeEndDb,
+              )
+              /**
+               * Stable ordering is important
+               * for paginated fetches.
+               */
+              .order(
+                'order_id',
+                {
+                  ascending: true,
+                },
+              )
+              .range(
+                from,
+                to,
+              );
+
+          if (
+            restaurant !== 'All'
+          ) {
+            query =
+              query.eq(
+                'restaurant_name',
+                restaurant,
+              );
+          }
+
+          return query;
+        },
+      );
+    };
+
+    /**
+     * ------------------------------------------------------------
+     * FETCH CURRENT + PREVIOUS + RESTAURANTS
+     * ------------------------------------------------------------
+     *
+     * All independent requests run concurrently.
+     */
+    let current: OrderRow[] = [];
+    let previous: OrderRow[] = [];
+    let restaurantNames: string[] = [];
+
+    try {
+      const [
+        currentRows,
+        previousRows,
+        restaurantResult,
+      ] = await Promise.all([
         fetchOrders(
           start,
-          end
+          endExclusive,
         ),
+
         fetchOrders(
-          prevStart,
-          prevEnd
+          previousStart,
+          start,
+        ),
+
+        supabaseAdmin.rpc(
+          'distinct_restaurants_dashboard',
         ),
       ]);
 
-    /*
-     * Get all restaurant names from the lightweight RPC.
-     */
-    const {
-      data: restaurantRows,
-      error: restaurantErr,
-    } =
-      await supabaseAdmin.rpc(
-        'distinct_restaurants_dashboard'
+      current =
+        currentRows;
+
+      previous =
+        previousRows;
+
+      if (
+        restaurantResult.error
+      ) {
+        throw new Error(
+          restaurantResult.error.message,
+        );
+      }
+
+      /**
+       * Use Set instead of:
+       *
+       *   names.includes(...)
+       *
+       * repeatedly.
+       */
+      const names =
+        new Set<string>();
+
+      for (
+        const row of
+        (restaurantResult.data ??
+          []) as Array<{
+          restaurant_name?:
+            | string
+            | null;
+        }>
+      ) {
+        const name =
+          String(
+            row.restaurant_name ??
+              '',
+          ).trim();
+
+        if (name) {
+          names.add(name);
+        }
+      }
+
+      restaurantNames =
+        Array.from(names).sort(
+          (a, b) =>
+            a.localeCompare(b),
+        );
+    } catch (err: any) {
+      console.error(
+        '[summary] database fetch error:',
+        err,
       );
 
-    if (restaurantErr) {
-      throw new Error(
-        restaurantErr.message
+      return NextResponse.json(
+        {
+          error:
+            err?.message ??
+            'Failed to load dashboard data.',
+        },
+        {
+          status: 500,
+        },
       );
     }
 
-    const names: string[] =
-      [];
+    /**
+     * ------------------------------------------------------------
+     * CURRENT PERIOD AGGREGATION
+     * ------------------------------------------------------------
+     *
+     * Everything that can be calculated in one pass
+     * is calculated in one pass.
+     */
 
-    for (
-      const row of
-      (restaurantRows ?? []) as Array<{
-        restaurant_name?:
-          | string
-          | null;
-      }>
-    ) {
-      const name =
+    const storeIds =
+      new Set<
+        string | number
+      >();
+
+    const paymentCounts =
+      new Map<
+        string,
+        number
+      >();
+
+    /**
+     * 24 hourly buckets.
+     */
+    const hourlyCounts =
+      new Array<number>(
+        24,
+      ).fill(0);
+
+    /**
+     * Daily aggregated buckets.
+     *
+     * Instead of:
+     *
+     *   dailyBuckets[date] = rows[]
+     *
+     * we directly store the totals needed
+     * by the frontend.
+     */
+    const dailyBuckets =
+      new Map<
+        string,
+        {
+          sales: number;
+          commission: number;
+          payout: number;
+          count: number;
+        }
+      >();
+
+    let totalSales = 0;
+    let totalPayout = 0;
+    let totalMarketingFees = 0;
+    let totalTax = 0;
+    let totalPayoutAfterFoodCost =
+      0;
+    let totalVoucherFundedByYou =
+      0;
+
+    let acceptedHourTotal = 0;
+    let acceptedHourCount = 0;
+
+    let prepMinuteTotal = 0;
+    let prepMinuteCount = 0;
+
+    let delayMinuteTotal = 0;
+    let delayMinuteCount = 0;
+
+    let deliveryMinuteTotal = 0;
+    let deliveryMinuteCount = 0;
+
+    /**
+     * ONE LOOP THROUGH CURRENT ROWS
+     */
+    for (const row of current) {
+      /**
+       * Store count
+       */
+      if (
+        row.store_id !==
+          null &&
+        row.store_id !==
+          undefined
+      ) {
+        storeIds.add(
+          row.store_id,
+        );
+      }
+
+      /**
+       * Financial totals
+       */
+      const subtotal =
+        toNumber(
+          row.subtotal,
+        );
+
+      const payout =
+        toNumber(
+          row.payout_amount,
+        );
+
+      const marketingFees =
+        toNumber(
+          row.marketing_fees,
+        );
+
+      const tax =
+        toNumber(
+          row.tax_amount,
+        );
+
+      const payoutAfterFoodCost =
+        toNumber(
+          row.payout_after_food_cost,
+        );
+
+      const voucherFundedByYou =
+        toNumber(
+          row.voucher_funded_by_you,
+        );
+
+      totalSales +=
+        subtotal;
+
+      totalPayout +=
+        payout;
+
+      totalMarketingFees +=
+        marketingFees;
+
+      totalTax +=
+        tax;
+
+      totalPayoutAfterFoodCost +=
+        payoutAfterFoodCost;
+
+      totalVoucherFundedByYou +=
+        voucherFundedByYou;
+
+      /**
+       * Payment method
+       */
+      const paymentMethod =
         String(
-          row.restaurant_name ??
-            ''
-        ).trim();
+          row.payment_method ??
+            'Unknown',
+        ).trim() ||
+        'Unknown';
+
+      paymentCounts.set(
+        paymentMethod,
+        (
+          paymentCounts.get(
+            paymentMethod,
+          ) ?? 0
+        ) + 1,
+      );
+
+      /**
+       * Accepted hour
+       *
+       * This replaces the old:
+       *
+       * 24 × current.filter(...)
+       *
+       * approach.
+       */
+      const acceptedHour =
+        getUtcHour(
+          row.accepted_at,
+        );
 
       if (
-        name &&
-        !names.includes(name)
+        acceptedHour !== null
       ) {
-        names.push(name);
+        hourlyCounts[
+          acceptedHour
+        ] += 1;
+
+        acceptedHourTotal +=
+          acceptedHour;
+
+        acceptedHourCount +=
+          1;
+      }
+
+      /**
+       * Prep time
+       */
+      const prepMinutes =
+        minuteDifference(
+          row.accepted_at,
+          row.ready_to_pickup_at,
+        );
+
+      if (
+        prepMinutes !== null
+      ) {
+        prepMinuteTotal +=
+          prepMinutes;
+
+        prepMinuteCount +=
+          1;
+      }
+
+      /**
+       * Delay vs estimate
+       */
+      const delayMinutes =
+        minuteDifference(
+          row.estimated_delivery_at,
+          row.delivered_at,
+        );
+
+      if (
+        delayMinutes !== null
+      ) {
+        delayMinuteTotal +=
+          delayMinutes;
+
+        delayMinuteCount +=
+          1;
+      }
+
+      /**
+       * Delivery time
+       */
+      const deliveryMinutes =
+        minuteDifference(
+          row.in_delivery_at,
+          row.delivered_at,
+        );
+
+      if (
+        deliveryMinutes !== null
+      ) {
+        deliveryMinuteTotal +=
+          deliveryMinutes;
+
+        deliveryMinuteCount +=
+          1;
+      }
+
+      /**
+       * Daily aggregation
+       */
+      if (row.order_date) {
+        const parsedDate =
+          parseDate(
+            row.order_date,
+          );
+
+        if (parsedDate) {
+          const date =
+            formatISO(
+              parsedDate,
+              {
+                representation:
+                  'date',
+              },
+            );
+
+          const existing =
+            dailyBuckets.get(
+              date,
+            ) ?? {
+              sales: 0,
+              commission: 0,
+              payout: 0,
+              count: 0,
+            };
+
+          existing.sales +=
+            subtotal;
+
+          existing.commission +=
+            toNumber(
+              row.commission,
+            );
+
+          existing.payout +=
+            payout;
+
+          existing.count +=
+            1;
+
+          dailyBuckets.set(
+            date,
+            existing,
+          );
+        }
       }
     }
 
-    restaurantNames =
-      names.sort(
-        (a, b) =>
-          a.localeCompare(b)
+    /**
+     * ------------------------------------------------------------
+     * PAYMENT METHOD
+     * ------------------------------------------------------------
+     */
+    const paymentMethodBreakdown =
+      Array.from(
+        paymentCounts.entries(),
+      ).map(
+        ([method, count]) => ({
+          method,
+          count,
+        }),
       );
+
+    /**
+     * ------------------------------------------------------------
+     * HOURLY TRAFFIC
+     * ------------------------------------------------------------
+     */
+    const hourlyTraffic =
+      hourlyCounts.map(
+        (count, hour) => ({
+          hour,
+          count,
+        }),
+      );
+
+    /**
+     * ------------------------------------------------------------
+     * DAILY SERIES
+     * ------------------------------------------------------------
+     *
+     * Always returns every day in the selected range,
+     * including days with zero orders.
+     */
+    const dailyFinancials: Array<{
+      date: string;
+      sales: number;
+      commission: number;
+      payout: number;
+    }> = [];
+
+    const dailyOrders: Array<{
+      date: string;
+      count: number;
+    }> = [];
+
+    for (
+      let i = 0;
+      i < spanDays;
+      i++
+    ) {
+      const date =
+        formatISO(
+          subDays(
+            end,
+            spanDays -
+              1 -
+              i,
+          ),
+          {
+            representation:
+              'date',
+          },
+        );
+
+      const bucket =
+        dailyBuckets.get(
+          date,
+        );
+
+      dailyFinancials.push({
+        date,
+
+        sales:
+          round2(
+            bucket?.sales ??
+              0,
+          ),
+
+        commission:
+          round2(
+            bucket?.commission ??
+              0,
+          ),
+
+        payout:
+          round2(
+            bucket?.payout ??
+              0,
+          ),
+      });
+
+      dailyOrders.push({
+        date,
+
+        count:
+          bucket?.count ??
+          0,
+      });
+    }
+
+    /**
+     * ------------------------------------------------------------
+     * PREVIOUS PERIOD
+     * ------------------------------------------------------------
+     *
+     * Only calculate the totals actually returned
+     * by the previous object.
+     */
+    let previousSales = 0;
+    let previousPayout = 0;
+    let previousMarketingFees =
+      0;
+    let previousTax = 0;
+
+    for (
+      const row of previous
+    ) {
+      previousSales +=
+        toNumber(
+          row.subtotal,
+        );
+
+      previousPayout +=
+        toNumber(
+          row.payout_amount,
+        );
+
+      previousMarketingFees +=
+        toNumber(
+          row.marketing_fees,
+        );
+
+      previousTax +=
+        toNumber(
+          row.tax_amount,
+        );
+    }
+
+    /**
+     * ------------------------------------------------------------
+     * FINAL RESPONSE
+     * ------------------------------------------------------------
+     *
+     * Response property names are intentionally
+     * identical to your existing summary route.
+     */
+    return NextResponse.json({
+      totalStores:
+        storeIds.size,
+
+      totalOrders:
+        current.length,
+
+      totalSales:
+        round2(
+          totalSales,
+        ),
+
+      payoutAmount:
+        round2(
+          totalPayout,
+        ),
+
+      totalMarketingFees:
+        round2(
+          totalMarketingFees,
+        ),
+
+      taxAmount:
+        round2(
+          totalTax,
+        ),
+
+      payoutAfterFoodCost:
+        round2(
+          totalPayoutAfterFoodCost,
+        ),
+
+      voucherFundedByYou:
+        round2(
+          totalVoucherFundedByYou,
+        ),
+
+      avgOrderHour:
+        acceptedHourCount >
+        0
+          ? round2(
+              acceptedHourTotal /
+                acceptedHourCount,
+            )
+          : null,
+
+      avgPrepTimeMin:
+        prepMinuteCount >
+        0
+          ? round2(
+              prepMinuteTotal /
+                prepMinuteCount,
+            )
+          : null,
+
+      avgDelayVsEstimateMin:
+        delayMinuteCount >
+        0
+          ? round2(
+              delayMinuteTotal /
+                delayMinuteCount,
+            )
+          : null,
+
+      avgDeliveryTimeMin:
+        deliveryMinuteCount >
+        0
+          ? round2(
+              deliveryMinuteTotal /
+                deliveryMinuteCount,
+            )
+          : null,
+
+      previous: {
+        totalOrders:
+          previous.length,
+
+        totalSales:
+          round2(
+            previousSales,
+          ),
+
+        payoutAmount:
+          round2(
+            previousPayout,
+          ),
+
+        totalMarketingFees:
+          round2(
+            previousMarketingFees,
+          ),
+
+        taxAmount:
+          round2(
+            previousTax,
+          ),
+      },
+
+      paymentMethodBreakdown,
+
+      hourlyTraffic,
+
+      dailyFinancials,
+
+      dailyOrders,
+
+      restaurants:
+        restaurantNames,
+    });
   } catch (err: any) {
+    console.error(
+      '[summary] unexpected error:',
+      err,
+    );
+
     return NextResponse.json(
       {
         error:
           err?.message ??
-          'Failed to load dashboard data.',
+          'Unexpected error while loading dashboard data.',
       },
-      { status: 500 }
-    );
-  }
-
-  // -------------------------------------------------------------------
-  // Helpers
-  // -------------------------------------------------------------------
-
-  const sum = (
-    rows: any[],
-    key: string
-  ) =>
-    rows.reduce(
-      (total, row) => {
-        const numberValue =
-          Number(row[key]);
-
-        return (
-          total +
-          (Number.isFinite(
-            numberValue
-          )
-            ? numberValue
-            : 0)
-        );
+      {
+        status: 500,
       },
-      0
-    );
-
-  const avgMinutesDiff = (
-  rows: any[],
-  startKey: string,
-  endKey: string
-) => {
-  const differences: number[] = [];
-
-  for (const row of rows) {
-    const startValue = row[startKey];
-    const endValue = row[endKey];
-
-    if (!startValue || !endValue) {
-      continue;
-    }
-
-    const startTime = new Date(startValue).getTime();
-    const endTime = new Date(endValue).getTime();
-
-    if (
-      !Number.isFinite(startTime) ||
-      !Number.isFinite(endTime)
-    ) {
-      continue;
-    }
-
-    /*
-     * Match Power BI DATEDIFF(..., MINUTE):
-     * count whole minute intervals and keep BOTH
-     * positive (late) and negative (early) values.
-     */
-    differences.push(
-      Math.trunc(
-        (endTime - startTime) / 60000
-      )
     );
   }
-
-  if (differences.length === 0) {
-    return null;
-  }
-
-  return (
-    Math.round(
-      (
-        differences.reduce(
-          (a, b) => a + b,
-          0
-        ) / differences.length
-      ) * 100
-    ) / 100
-  );
-};
-
-  const hourOf = (
-    row: any,
-    key: string
-  ): number | null => {
-    const value =
-      row[key];
-
-    if (!value) {
-      return null;
-    }
-
-    const date =
-      new Date(value);
-
-    return Number.isFinite(
-      date.getTime()
-    )
-      ? date.getUTCHours()
-      : null;
-  };
-
-  const avgHourOf = (
-    rows: any[],
-    key: string
-  ) => {
-    const hours =
-      rows
-        .map((row) =>
-          hourOf(
-            row,
-            key
-          )
-        )
-        .filter(
-          (
-            hour
-          ): hour is number =>
-            hour !== null
-        );
-
-    if (hours.length === 0) {
-      return null;
-    }
-
-    return (
-      Math.round(
-        (
-          hours.reduce(
-            (a, b) => a + b,
-            0
-          ) /
-          hours.length
-        ) * 100
-      ) / 100
-    );
-  };
-
-  // -------------------------------------------------------------------
-  // Total Stores
-  // -------------------------------------------------------------------
-
-  const totalStores =
-    new Set(
-      current
-        .map(
-          (row: any) =>
-            row.store_id
-        )
-        .filter(
-          (id) =>
-            id !== null &&
-            id !== undefined
-        )
-    ).size;
-
-  // -------------------------------------------------------------------
-  // Payment Method Breakdown
-  // -------------------------------------------------------------------
-
-  const paymentMethodBreakdown =
-    Object.entries(
-      current.reduce(
-        (
-          accumulator: Record<
-            string,
-            number
-          >,
-          row: any
-        ) => {
-          const method =
-            row.payment_method ||
-            'Unknown';
-
-          accumulator[
-            method
-          ] =
-            (accumulator[
-              method
-            ] || 0) + 1;
-
-          return accumulator;
-        },
-        {}
-      )
-    ).map(
-      ([method, count]) => ({
-        method,
-        count:
-          count as number,
-      })
-    );
-
-  // -------------------------------------------------------------------
-  // Hourly Traffic
-  // -------------------------------------------------------------------
-
-  const hourlyTraffic =
-    Array.from(
-      { length: 24 },
-      (_, hour) => ({
-        hour,
-
-        count:
-          current.filter(
-            (row: any) =>
-              hourOf(
-                row,
-                'accepted_at'
-              ) === hour
-          ).length,
-      })
-    );
-
-  // -------------------------------------------------------------------
-  // Daily Series
-  // -------------------------------------------------------------------
-
-  const dailyBuckets =
-    current.reduce(
-      (
-        accumulator: Record<
-          string,
-          any[]
-        >,
-        row: any
-      ) => {
-        if (!row.order_date) {
-          return accumulator;
-        }
-
-        const parsedDate =
-          new Date(
-            row.order_date
-          );
-
-        if (
-          !Number.isFinite(
-            parsedDate.getTime()
-          )
-        ) {
-          return accumulator;
-        }
-
-        const date =
-          formatISO(
-            parsedDate,
-            {
-              representation:
-                'date',
-            }
-          );
-
-        (
-          accumulator[date] ??
-          (accumulator[date] = [])
-        ).push(row);
-
-        return accumulator;
-      },
-      {}
-    );
-
-  const dailyFinancials: {
-    date: string;
-    sales: number;
-    commission: number;
-    payout: number;
-  }[] = [];
-
-  const dailyOrders: {
-    date: string;
-    count: number;
-  }[] = [];
-
-  for (
-    let i = 0;
-    i < spanDays;
-    i++
-  ) {
-    const date =
-      formatISO(
-        subDays(
-          end,
-          spanDays -
-            1 -
-            i
-        ),
-        {
-          representation:
-            'date',
-        }
-      );
-
-    const dailyOrderRows =
-      dailyBuckets[
-        date
-      ] ?? [];
-
-    dailyFinancials.push({
-      date,
-
-      sales:
-        Math.round(
-          sum(
-            dailyOrderRows,
-            'subtotal'
-          ) * 100
-        ) / 100,
-
-      commission:
-        Math.round(
-          sum(
-            dailyOrderRows,
-            'commission'
-          ) * 100
-        ) / 100,
-
-      payout:
-        Math.round(
-          sum(
-            dailyOrderRows,
-            'payout_amount'
-          ) * 100
-        ) / 100,
-    });
-
-    dailyOrders.push({
-      date,
-      count:
-        dailyOrderRows.length,
-    });
-  }
-
-  // -------------------------------------------------------------------
-  // Final Response
-  // -------------------------------------------------------------------
-
-  return NextResponse.json({
-    totalStores,
-
-    totalOrders:
-      current.length,
-
-    totalSales:
-      Math.round(
-        sum(
-          current,
-          'subtotal'
-        ) * 100
-      ) / 100,
-
-    payoutAmount:
-      Math.round(
-        sum(
-          current,
-          'payout_amount'
-        ) * 100
-      ) / 100,
-
-    totalMarketingFees:
-      Math.round(
-        sum(
-          current,
-          'marketing_fees'
-        ) * 100
-      ) / 100,
-
-    taxAmount:
-      Math.round(
-        sum(
-          current,
-          'tax_amount'
-        ) * 100
-      ) / 100,
-
-    payoutAfterFoodCost:
-      Math.round(
-        sum(
-          current,
-          'payout_after_food_cost'
-        ) * 100
-      ) / 100,
-
-    voucherFundedByYou:
-      Math.round(
-        sum(
-          current,
-          'voucher_funded_by_you'
-        ) * 100
-      ) / 100,
-
-    avgOrderHour:
-      avgHourOf(
-        current,
-        'accepted_at'
-      ),
-
-    avgPrepTimeMin:
-      avgMinutesDiff(
-        current,
-        'accepted_at',
-        'ready_to_pickup_at'
-      ),
-
-    avgDelayVsEstimateMin:
-      avgMinutesDiff(
-        current,
-        'estimated_delivery_at',
-        'delivered_at'
-      ),
-
-    avgDeliveryTimeMin:
-      avgMinutesDiff(
-        current,
-        'in_delivery_at',
-        'delivered_at'
-      ),
-
-    previous: {
-      totalOrders:
-        previous.length,
-
-      totalSales:
-        Math.round(
-          sum(
-            previous,
-            'subtotal'
-          ) * 100
-        ) / 100,
-
-      payoutAmount:
-        Math.round(
-          sum(
-            previous,
-            'payout_amount'
-          ) * 100
-        ) / 100,
-
-      totalMarketingFees:
-        Math.round(
-          sum(
-            previous,
-            'marketing_fees'
-          ) * 100
-        ) / 100,
-
-      taxAmount:
-        Math.round(
-          sum(
-            previous,
-            'tax_amount'
-          ) * 100
-        ) / 100,
-    },
-
-    paymentMethodBreakdown,
-
-    hourlyTraffic,
-
-    dailyFinancials,
-
-    dailyOrders,
-
-    restaurants:
-      restaurantNames,
-  });
 }
