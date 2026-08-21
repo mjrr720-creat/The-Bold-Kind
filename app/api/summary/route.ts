@@ -72,6 +72,11 @@ export async function GET(req: NextRequest) {
    *
    * order_date is text in the source/view, so the date boundaries
    * are kept in the same sortable "YYYY-MM-DD HH:mm" style.
+   *
+   * IMPORTANT:
+   * We also apply a deterministic ORDER BY before pagination.
+   * Without a stable ordering, PostgREST pagination can return
+   * overlapping/missing rows across multiple .range() requests.
    */
   const fetchOrders = (
     rangeStart: Date,
@@ -99,6 +104,19 @@ export async function GET(req: NextRequest) {
           .lte(
             'order_date',
             rangeEndDb
+          )
+          // Stable pagination order.
+          .order(
+            'order_id',
+            {
+              ascending: true,
+            }
+          )
+          .order(
+            'restaurant_name',
+            {
+              ascending: true,
+            }
           )
           .range(
             from,
@@ -137,8 +155,7 @@ export async function GET(req: NextRequest) {
       ]);
 
     /*
-     * IMPORTANT:
-     * Use the NEW RPC created for the new Supabase project.
+     * Get all restaurant names from the lightweight RPC.
      */
     const {
       data: restaurantRows,
@@ -268,7 +285,9 @@ export async function GET(req: NextRequest) {
           startTime) /
         60000;
 
-      if (difference >= 0) {
+      if (
+        difference >= 0
+      ) {
         differences.push(
           difference
         );
@@ -387,7 +406,9 @@ export async function GET(req: NextRequest) {
             row.payment_method ||
             'Unknown';
 
-          accumulator[method] =
+          accumulator[
+            method
+          ] =
             (accumulator[
               method
             ] || 0) + 1;
