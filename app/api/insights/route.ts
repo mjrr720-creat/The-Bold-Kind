@@ -31,50 +31,76 @@ export async function GET(req: NextRequest) {
   // End date is EXCLUSIVE.
   // ---------------------------------------------------------------
 
-  const start = new Date(`${startDate}T00:00:00Z`);
-  const endExclusive = new Date(`${endDate}T00:00:00Z`);
+  // Keep the date values in YYYY-MM-DD format.
+// This matches the SQL comparison exactly:
+//
+// order_date >= '2026-08-01'
+// AND order_date < '2026-08-16'
+//
+const startDateValue = startDate;
 
-  endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+const endDateObj = new Date(`${endDate}T00:00:00Z`);
 
-  if (
-    !Number.isFinite(start.getTime()) ||
-    !Number.isFinite(endExclusive.getTime())
-  ) {
-    return NextResponse.json(
-      {
-        error: 'Invalid startDate or endDate.',
-      },
-      { status: 400 }
-    );
-  }
+if (!Number.isFinite(endDateObj.getTime())) {
+  return NextResponse.json(
+    {
+      error: 'Invalid startDate or endDate.',
+    },
+    { status: 400 }
+  );
+}
 
-  let rows: any[] = [];
+endDateObj.setUTCDate(
+  endDateObj.getUTCDate() + 1
+);
 
-  try {
-    rows = await fetchAllRows<any>((from, to) => {
-      let query = supabaseAdmin
-  .from('orders_dashboard')
-  .select('*')
-  .gte('order_date', start.toISOString())
-  .lt('order_date', endExclusive.toISOString())
-  .order('order_id', { ascending: true })
-  .range(from, to);
+const endDateValue = endDateObj
+  .toISOString()
+  .slice(0, 10);
 
-      if (restaurant !== 'All') {
-        query = query.eq('restaurant_name', restaurant);
-      }
+let rows: any[] = [];
 
-      return query;
-    });
-  } catch (err: any) {
-    return NextResponse.json(
-      {
-        error:
-          err?.message ?? 'Failed to load dashboard insights.',
-      },
-      { status: 500 }
-    );
-  }
+try {
+  rows = await fetchAllRows<any>((from, to) => {
+    let query = supabaseAdmin
+      .from('orders_dashboard')
+      .select('*')
+      .gte(
+        'order_date',
+        startDateValue
+      )
+      .lt(
+        'order_date',
+        endDateValue
+      )
+      .order(
+        'order_id',
+        { ascending: true }
+      )
+      .range(
+        from,
+        to
+      );
+
+    if (restaurant !== 'All') {
+      query = query.eq(
+        'restaurant_name',
+        restaurant
+      );
+    }
+
+    return query;
+  });
+} catch (err: any) {
+  return NextResponse.json(
+    {
+      error:
+        err?.message ??
+        'Failed to load dashboard insights.',
+    },
+    { status: 500 }
+  );
+}
 
   // ---------------------------------------------------------------
   // HELPERS
