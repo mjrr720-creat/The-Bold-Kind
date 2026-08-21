@@ -5,6 +5,8 @@ import { formatISO } from 'date-fns';
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
+type OrderRow = Record<string, any>;
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
 
@@ -24,90 +26,111 @@ export async function GET(req: NextRequest) {
   // ---------------------------------------------------------------
   // DATE FILTER
   //
-  // Matches SQL:
+  // Start date is inclusive.
+  // End date is inclusive from the UI perspective.
+  //
+  // Example:
+  // startDate = 2026-08-01
+  // endDate   = 2026-08-15
+  //
+  // SQL:
   // order_date >= '2026-08-01'
   // AND order_date < '2026-08-16'
-  //
-  // End date is EXCLUSIVE.
   // ---------------------------------------------------------------
 
-  // Keep the date values in YYYY-MM-DD format.
-// This matches the SQL comparison exactly:
-//
-// order_date >= '2026-08-01'
-// AND order_date < '2026-08-16'
-//
-const startDateValue = startDate;
+  const startDateObj = new Date(`${startDate}T00:00:00Z`);
+  const endDateObj = new Date(`${endDate}T00:00:00Z`);
 
-const endDateObj = new Date(`${endDate}T00:00:00Z`);
+  if (
+    !Number.isFinite(startDateObj.getTime()) ||
+    !Number.isFinite(endDateObj.getTime())
+  ) {
+    return NextResponse.json(
+      {
+        error: 'Invalid startDate or endDate.',
+      },
+      { status: 400 }
+    );
+  }
 
-if (!Number.isFinite(endDateObj.getTime())) {
-  return NextResponse.json(
-    {
-      error: 'Invalid startDate or endDate.',
-    },
-    { status: 400 }
-  );
-}
+  if (startDateObj > endDateObj) {
+    return NextResponse.json(
+      {
+        error: 'startDate cannot be after endDate.',
+      },
+      { status: 400 }
+    );
+  }
 
-endDateObj.setUTCDate(
-  endDateObj.getUTCDate() + 1
-);
+  // Make end date exclusive by adding one day.
+  endDateObj.setUTCDate(endDateObj.getUTCDate() + 1);
 
-const endDateValue = endDateObj
-  .toISOString()
-  .slice(0, 10);
+  const startDateValue = startDateObj
+    .toISOString()
+    .slice(0, 10);
 
-let rows: any[] = [];
+  const endDateValue = endDateObj
+    .toISOString()
+    .slice(0, 10);
 
-try {
-  rows = await fetchAllRows<any>((from, to) => {
-    let query = supabaseAdmin
-      .from('orders_dashboard')
-      .select('*')
-      .gte(
-        'order_date',
-        startDateValue
-      )
-      .lt(
-        'order_date',
-        endDateValue
-      )
-      .order(
-        'order_id',
-        { ascending: true }
-      )
-      .range(
-        from,
-        to
-      );
+  // ---------------------------------------------------------------
+  // LOAD ALL ROWS
+  // ---------------------------------------------------------------
 
-    if (restaurant !== 'All') {
-      query = query.eq(
-        'restaurant_name',
-        restaurant
-      );
-    }
+  let rows: OrderRow[] = [];
 
-    return query;
-  });
-} catch (err: any) {
-  return NextResponse.json(
-    {
-      error:
-        err?.message ??
-        'Failed to load dashboard insights.',
-    },
-    { status: 500 }
-  );
-}
+  try {
+    rows = await fetchAllRows<OrderRow>(async (from, to) => {
+      let query = supabaseAdmin
+        .from('orders_dashboard')
+        .select('*')
+        .gte('order_date', startDateValue)
+        .lt('order_date', endDateValue)
+        .order('order_id', { ascending: true })
+        .range(from, to);
+
+      if (restaurant !== 'All') {
+        query = query.eq(
+          'restaurant_name',
+          restaurant
+        );
+      }
+
+      const result = await query;
+
+      return {
+        data: result.data as OrderRow[] | null,
+        error: result.error
+          ? {
+              message: result.error.message,
+            }
+          : null,
+      };
+    });
+  } catch (err: unknown) {
+    const message =
+      err instanceof Error
+        ? err.message
+        : 'Failed to load dashboard insights.';
+
+    return NextResponse.json(
+      {
+        error: message,
+      },
+      { status: 500 }
+    );
+  }
 
   // ---------------------------------------------------------------
   // HELPERS
   // ---------------------------------------------------------------
 
   const num = (value: unknown): number => {
-    if (value === null || value === undefined || value === '') {
+    if (
+      value === null ||
+      value === undefined ||
+      value === ''
+    ) {
       return 0;
     }
 
@@ -120,9 +143,13 @@ try {
     return Math.round(value * 100) / 100;
   };
 
-  const sum = (arr: any[], key: string): number => {
+  const sum = (
+    arr: OrderRow[],
+    key: string
+  ): number => {
     return arr.reduce(
-      (total, row) => total + num(row[key]),
+      (total, row) =>
+        total + num(row[key]),
       0
     );
   };
@@ -135,11 +162,13 @@ try {
       return null;
     }
 
-    return round2((numerator / denominator) * 100);
+    return round2(
+      (numerator / denominator) * 100
+    );
   };
 
   const minutesBetween = (
-    row: any,
+    row: OrderRow,
     startKey: string,
     endKey: string
   ): number | null => {
@@ -150,8 +179,13 @@ try {
       return null;
     }
 
-    const startMs = new Date(startValue).getTime();
-    const endMs = new Date(endValue).getTime();
+    const startMs = new Date(
+      startValue
+    ).getTime();
+
+    const endMs = new Date(
+      endValue
+    ).getTime();
 
     if (
       !Number.isFinite(startMs) ||
@@ -160,13 +194,15 @@ try {
       return null;
     }
 
-    return (endMs - startMs) / 60000;
+    return (
+      (endMs - startMs) / 60000
+    );
   };
 
   const groupCount = (
-    arr: any[],
+    arr: OrderRow[],
     keyFn: (
-      row: any
+      row: OrderRow
     ) => string | null | undefined
   ): Record<string, number> => {
     const result: Record<string, number> = {};
@@ -182,7 +218,8 @@ try {
         continue;
       }
 
-      result[key] = (result[key] || 0) + 1;
+      result[key] =
+        (result[key] || 0) + 1;
     }
 
     return result;
@@ -191,7 +228,10 @@ try {
   const toSortedLabelValue = (
     map: Record<string, number>,
     topN?: number
-  ): { label: string; value: number }[] => {
+  ): {
+    label: string;
+    value: number;
+  }[] => {
     const list = Object.entries(map).map(
       ([label, value]) => ({
         label,
@@ -199,9 +239,13 @@ try {
       })
     );
 
-    list.sort((a, b) => b.value - a.value);
+    list.sort(
+      (a, b) => b.value - a.value
+    );
 
-    return topN ? list.slice(0, topN) : list;
+    return topN
+      ? list.slice(0, topN)
+      : list;
   };
 
   // ---------------------------------------------------------------
@@ -210,42 +254,60 @@ try {
 
   const totalOrders = rows.length;
 
-  const totalSubtotal = sum(rows, 'subtotal');
+  const totalSubtotal = sum(
+    rows,
+    'subtotal'
+  );
 
   // ---------------------------------------------------------------
   // KPIs
   // ---------------------------------------------------------------
 
-  const isCancelled = (row: any): boolean => {
+  const isCancelled = (
+    row: OrderRow
+  ): boolean => {
     return (
       Boolean(row.cancelled_at) ||
-      /cancel/i.test(String(row.order_status ?? ''))
+      /cancel/i.test(
+        String(row.order_status ?? '')
+      )
     );
   };
 
-  const cancelledCount = rows.filter(isCancelled).length;
+  const cancelledCount =
+    rows.filter(isCancelled).length;
 
-  const withBothDeliveryTimestamps = rows.filter(
-    (row) =>
-      row.delivered_at &&
-      row.estimated_delivery_at
-  );
+  const withBothDeliveryTimestamps =
+    rows.filter(
+      (row) =>
+        row.delivered_at &&
+        row.estimated_delivery_at
+    );
 
   const onTimeCount =
     withBothDeliveryTimestamps.filter(
       (row) =>
-        new Date(row.delivered_at).getTime() <=
-        new Date(row.estimated_delivery_at).getTime()
+        new Date(
+          row.delivered_at
+        ).getTime() <=
+        new Date(
+          row.estimated_delivery_at
+        ).getTime()
     ).length;
 
-  const complaintCount = rows.filter(
-    (row) => row.has_complaint === true
-  ).length;
+  const complaintCount =
+    rows.filter(
+      (row) =>
+        row.has_complaint === true
+    ).length;
 
   const kpis = {
     avgOrderValue:
       totalOrders > 0
-        ? round2(totalSubtotal / totalOrders)
+        ? round2(
+            totalSubtotal /
+              totalOrders
+          )
         : null,
 
     commissionPct: pct(
@@ -274,11 +336,17 @@ try {
     ),
 
     restaurantDiscount: round2(
-      sum(rows, 'discount_funded_by_you')
+      sum(
+        rows,
+        'discount_funded_by_you'
+      )
     ),
 
     marketingPct: pct(
-      sum(rows, 'marketing_fees_total'),
+      sum(
+        rows,
+        'marketing_fees_total'
+      ),
       totalSubtotal
     ),
   };
@@ -287,10 +355,14 @@ try {
   // 1. TOP RESTAURANTS BY SALES
   // ---------------------------------------------------------------
 
-  const salesByRestaurant: Record<string, number> = {};
+  const salesByRestaurant: Record<
+    string,
+    number
+  > = {};
 
   for (const row of rows) {
-    const name = row.restaurant_name;
+    const name =
+      row.restaurant_name;
 
     if (!name) {
       continue;
@@ -301,49 +373,57 @@ try {
       num(row.subtotal);
   }
 
-  const topRestaurantsBySales = Object.entries(
-    salesByRestaurant
-  )
-    .map(([label, value]) => ({
-      label,
-      value: round2(value),
-    }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 10);
+  const topRestaurantsBySales =
+    Object.entries(
+      salesByRestaurant
+    )
+      .map(([label, value]) => ({
+        label,
+        value: round2(value),
+      }))
+      .sort(
+        (a, b) => b.value - a.value
+      )
+      .slice(0, 10);
 
   // ---------------------------------------------------------------
   // 2. ORDER STATUS
   // ---------------------------------------------------------------
 
-  const orderStatusBreakdown = toSortedLabelValue(
-    groupCount(
-      rows,
-      (row) => row.order_status
-    )
-  );
+  const orderStatusBreakdown =
+    toSortedLabelValue(
+      groupCount(
+        rows,
+        (row) => row.order_status
+      )
+    );
 
   // ---------------------------------------------------------------
   // 3. CANCELLATION REASONS
   // ---------------------------------------------------------------
 
-  const cancellationReasons = toSortedLabelValue(
-    groupCount(
-      rows,
-      (row) => row.cancellation_reason
-    ),
-    5
-  );
+  const cancellationReasons =
+    toSortedLabelValue(
+      groupCount(
+        rows,
+        (row) =>
+          row.cancellation_reason
+      ),
+      5
+    );
 
   // ---------------------------------------------------------------
   // 4. CANCELLATION OWNER
   // ---------------------------------------------------------------
 
-  const cancellationOwners = toSortedLabelValue(
-    groupCount(
-      rows,
-      (row) => row.cancellation_owner
-    )
-  );
+  const cancellationOwners =
+    toSortedLabelValue(
+      groupCount(
+        rows,
+        (row) =>
+          row.cancellation_owner
+      )
+    );
 
   // ---------------------------------------------------------------
   // 5. ORDERS BY WEEKDAY
@@ -359,20 +439,29 @@ try {
     'Saturday',
   ];
 
-  const weekdayCounts = new Array(7).fill(0);
+  const weekdayCounts =
+    new Array(7).fill(0);
 
   for (const row of rows) {
     if (!row.order_date) {
       continue;
     }
 
-    const date = new Date(row.order_date);
+    const date = new Date(
+      row.order_date
+    );
 
-    if (!Number.isFinite(date.getTime())) {
+    if (
+      !Number.isFinite(
+        date.getTime()
+      )
+    ) {
       continue;
     }
 
-    weekdayCounts[date.getUTCDay()] += 1;
+    weekdayCounts[
+      date.getUTCDay()
+    ] += 1;
   }
 
   const MONDAY_FIRST_ORDER = [
@@ -380,48 +469,66 @@ try {
   ];
 
   const ordersByWeekday =
-    MONDAY_FIRST_ORDER.map((index) => ({
-      label: WEEKDAY_NAMES[index],
-      value: weekdayCounts[index],
-    }));
+    MONDAY_FIRST_ORDER.map(
+      (index) => ({
+        label:
+          WEEKDAY_NAMES[index],
+        value:
+          weekdayCounts[index],
+      })
+    );
 
   // ---------------------------------------------------------------
   // 6. SALES BY HOUR
   // ---------------------------------------------------------------
 
-  const salesByHourArr = new Array(24).fill(0);
-  const countByHourArr = new Array(24).fill(0);
+  const salesByHourArr =
+    new Array(24).fill(0);
+
+  const countByHourArr =
+    new Array(24).fill(0);
 
   for (const row of rows) {
     if (!row.order_date) {
       continue;
     }
 
-    const date = new Date(row.order_date);
+    const date = new Date(
+      row.order_date
+    );
 
-    if (!Number.isFinite(date.getTime())) {
+    if (
+      !Number.isFinite(
+        date.getTime()
+      )
+    ) {
       continue;
     }
 
-    const hour = date.getUTCHours();
+    const hour =
+      date.getUTCHours();
 
-    salesByHourArr[hour] += num(row.subtotal);
+    salesByHourArr[hour] +=
+      num(row.subtotal);
+
     countByHourArr[hour] += 1;
   }
 
-  const salesByHour = salesByHourArr.map(
-    (value, hour) => ({
-      label: String(hour),
-      value: round2(value),
-    })
-  );
+  const salesByHour =
+    salesByHourArr.map(
+      (value, hour) => ({
+        label: String(hour),
+        value: round2(value),
+      })
+    );
 
-  const hourlyOrderCounts = countByHourArr.map(
-    (value, hour) => ({
-      label: String(hour),
-      value,
-    })
-  );
+  const hourlyOrderCounts =
+    countByHourArr.map(
+      (value, hour) => ({
+        label: String(hour),
+        value,
+      })
+    );
 
   // ---------------------------------------------------------------
   // 7. PREP TIME BY RESTAURANT
@@ -437,7 +544,8 @@ try {
   > = {};
 
   for (const row of rows) {
-    const name = row.restaurant_name;
+    const name =
+      row.restaurant_name;
 
     if (!name) {
       continue;
@@ -451,7 +559,9 @@ try {
       };
     }
 
-    prepByRestaurant[name].orders += 1;
+    prepByRestaurant[
+      name
+    ].orders += 1;
 
     const diff = minutesBetween(
       row,
@@ -460,25 +570,39 @@ try {
     );
 
     if (diff !== null) {
-      prepByRestaurant[name].totalMin += diff;
-      prepByRestaurant[name].count += 1;
+      prepByRestaurant[
+        name
+      ].totalMin += diff;
+
+      prepByRestaurant[
+        name
+      ].count += 1;
     }
   }
 
   const prepTimeByRestaurant =
-    Object.entries(prepByRestaurant)
-      .filter(([, value]) => value.count > 0)
+    Object.entries(
+      prepByRestaurant
+    )
+      .filter(
+        ([, value]) =>
+          value.count > 0
+      )
       .sort(
         (a, b) =>
-          b[1].orders - a[1].orders
+          b[1].orders -
+          a[1].orders
       )
       .slice(0, 15)
-      .map(([label, value]) => ({
-        label,
-        value: round2(
-          value.totalMin / value.count
-        ),
-      }));
+      .map(
+        ([label, value]) => ({
+          label,
+          value: round2(
+            value.totalMin /
+              value.count
+          ),
+        })
+      );
 
   // ---------------------------------------------------------------
   // 8. DELIVERY DELAY BUCKETS
@@ -522,10 +646,12 @@ try {
       continue;
     }
 
-    const category = delayCategory(diff);
+    const category =
+      delayCategory(diff);
 
     delayBucketCounts[category] =
-      (delayBucketCounts[category] || 0) + 1;
+      (delayBucketCounts[category] ||
+        0) + 1;
   }
 
   const DELAY_ORDER = [
@@ -540,29 +666,44 @@ try {
     DELAY_ORDER
       .filter(
         (category) =>
-          delayBucketCounts[category] > 0
+          delayBucketCounts[
+            category
+          ] > 0
       )
       .map((category) => ({
         label: category,
-        value: delayBucketCounts[category],
+        value:
+          delayBucketCounts[
+            category
+          ],
       }));
 
   // ---------------------------------------------------------------
   // 9. DISCOUNT + MARKETING BY MONTH
   // ---------------------------------------------------------------
 
-  const monthKeyOf = (row: any): string => {
+  const monthKeyOf = (
+    row: OrderRow
+  ): string => {
     if (row.order_month) {
-      return String(row.order_month).slice(0, 7);
+      return String(
+        row.order_month
+      ).slice(0, 7);
     }
 
     if (!row.order_date) {
       return '';
     }
 
-    const date = new Date(row.order_date);
+    const date = new Date(
+      row.order_date
+    );
 
-    if (!Number.isFinite(date.getTime())) {
+    if (
+      !Number.isFinite(
+        date.getTime()
+      )
+    ) {
       return '';
     }
 
@@ -585,7 +726,8 @@ try {
   > = {};
 
   for (const row of rows) {
-    const month = monthKeyOf(row);
+    const month =
+      monthKeyOf(row);
 
     if (!month) {
       continue;
@@ -598,55 +740,80 @@ try {
       };
     }
 
-    discountByMonth[month].restaurantFunded +=
-      num(row.discount_funded_by_you);
+    discountByMonth[
+      month
+    ].restaurantFunded += num(
+      row.discount_funded_by_you
+    );
 
-    discountByMonth[month].talabatFunded +=
-      num(row.talabat_funded_discount);
+    discountByMonth[
+      month
+    ].talabatFunded += num(
+      row.talabat_funded_discount
+    );
 
     marketingByMonth[month] =
-      (marketingByMonth[month] || 0) +
-      num(row.marketing_fees_total);
+      (marketingByMonth[month] ||
+        0) +
+      num(
+        row.marketing_fees_total
+      );
   }
 
-  const sortedMonths = Object.keys(
-    discountByMonth
-  ).sort((a, b) => a.localeCompare(b));
+  const sortedMonths =
+    Object.keys(
+      discountByMonth
+    ).sort((a, b) =>
+      a.localeCompare(b)
+    );
 
   const discountFundingByMonth =
-    sortedMonths.map((month) => ({
-      month,
+    sortedMonths.map(
+      (month) => ({
+        month,
 
-      restaurantFunded: round2(
-        discountByMonth[month].restaurantFunded
-      ),
+        restaurantFunded:
+          round2(
+            discountByMonth[
+              month
+            ].restaurantFunded
+          ),
 
-      talabatFunded: round2(
-        discountByMonth[month].talabatFunded
-      ),
-    }));
+        talabatFunded:
+          round2(
+            discountByMonth[
+              month
+            ].talabatFunded
+          ),
+      })
+    );
 
   const marketingCostByMonth =
-    sortedMonths.map((month) => ({
-      label: month,
-      value: round2(
-        marketingByMonth[month] || 0
-      ),
-    }));
+    sortedMonths.map(
+      (month) => ({
+        label: month,
+        value: round2(
+          marketingByMonth[
+            month
+          ] || 0
+        ),
+      })
+    );
 
   // ---------------------------------------------------------------
   // 10. COMPLAINTS
   // ---------------------------------------------------------------
 
-  const complaintsByReason = toSortedLabelValue(
-    groupCount(
-      rows,
-      (row) =>
-        row.has_complaint
-          ? row.complaint_reason
-          : null
-    )
-  );
+  const complaintsByReason =
+    toSortedLabelValue(
+      groupCount(
+        rows,
+        (row) =>
+          row.has_complaint
+            ? row.complaint_reason
+            : null
+      )
+    );
 
   // ---------------------------------------------------------------
   // 11. SUBSCRIPTION ORDERS
@@ -671,7 +838,8 @@ try {
     toSortedLabelValue(
       groupCount(
         rows,
-        (row) => row.delivery_type
+        (row) =>
+          row.delivery_type
       )
     );
 
@@ -690,7 +858,8 @@ try {
   > = {};
 
   for (const row of rows) {
-    const name = row.restaurant_name;
+    const name =
+      row.restaurant_name;
 
     if (!name) {
       continue;
@@ -710,20 +879,30 @@ try {
 
     restaurantAgg[name].orders += 1;
 
-    restaurantAgg[name].commission +=
-      num(row.commission);
+    restaurantAgg[
+      name
+    ].commission += num(
+      row.commission
+    );
 
-    restaurantAgg[name].payout +=
-      num(row.payout_amount);
+    restaurantAgg[
+      name
+    ].payout += num(
+      row.payout_amount
+    );
   }
 
   const restaurantPerformance =
-    Object.entries(restaurantAgg)
+    Object.entries(
+      restaurantAgg
+    )
       .map(
         ([restaurantName, value]) => ({
           restaurantName,
 
-          sales: round2(value.sales),
+          sales: round2(
+            value.sales
+          ),
 
           orders: value.orders,
 
