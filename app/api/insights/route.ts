@@ -53,11 +53,12 @@ export async function GET(req: NextRequest) {
   try {
     rows = await fetchAllRows<any>((from, to) => {
       let query = supabaseAdmin
-        .from('orders_dashboard')
-        .select('*')
-        .gte('order_date', start.toISOString())
-        .lt('order_date', endExclusive.toISOString())
-        .range(from, to);
+  .from('orders_dashboard')
+  .select('*')
+  .gte('order_date', start.toISOString())
+  .lt('order_date', endExclusive.toISOString())
+  .order('order_id', { ascending: true })
+  .range(from, to);
 
       if (restaurant !== 'All') {
         query = query.eq('restaurant_name', restaurant);
