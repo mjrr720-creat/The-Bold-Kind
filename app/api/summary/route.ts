@@ -238,80 +238,57 @@ export async function GET(req: NextRequest) {
     );
 
   const avgMinutesDiff = (
-    rows: any[],
-    startKey: string,
-    endKey: string
-  ) => {
-    const differences: number[] =
-      [];
+  rows: any[],
+  startKey: string,
+  endKey: string
+) => {
+  const differences: number[] = [];
 
-    for (const row of rows) {
-      const startValue =
-        row[startKey];
+  for (const row of rows) {
+    const startValue = row[startKey];
+    const endValue = row[endKey];
 
-      const endValue =
-        row[endKey];
-
-      if (
-        !startValue ||
-        !endValue
-      ) {
-        continue;
-      }
-
-      const startTime =
-        new Date(
-          startValue
-        ).getTime();
-
-      const endTime =
-        new Date(
-          endValue
-        ).getTime();
-
-      if (
-        !Number.isFinite(
-          startTime
-        ) ||
-        !Number.isFinite(
-          endTime
-        )
-      ) {
-        continue;
-      }
-
-      const difference =
-        (endTime -
-          startTime) /
-        60000;
-
-      if (
-        difference >= 0
-      ) {
-        differences.push(
-          difference
-        );
-      }
+    if (!startValue || !endValue) {
+      continue;
     }
+
+    const startTime = new Date(startValue).getTime();
+    const endTime = new Date(endValue).getTime();
 
     if (
-      differences.length === 0
+      !Number.isFinite(startTime) ||
+      !Number.isFinite(endTime)
     ) {
-      return null;
+      continue;
     }
 
-    return (
-      Math.round(
-        (
-          differences.reduce(
-            (a, b) => a + b,
-            0
-          ) /
-          differences.length
-        ) * 100
-      ) / 100
+    /*
+     * Match Power BI DATEDIFF(..., MINUTE):
+     * count whole minute intervals and keep BOTH
+     * positive (late) and negative (early) values.
+     */
+    differences.push(
+      Math.trunc(
+        (endTime - startTime) / 60000
+      )
     );
-  };
+  }
+
+  if (differences.length === 0) {
+    return null;
+  }
+
+  return (
+    Math.round(
+      (
+        differences.reduce(
+          (a, b) => a + b,
+          0
+        ) / differences.length
+      ) * 100
+    ) / 100
+  );
+};
 
   const hourOf = (
     row: any,
