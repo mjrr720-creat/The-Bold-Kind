@@ -1,22 +1,15 @@
+```tsx
 'use client';
 
 import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-  ResponsiveContainer,
-  LabelList,
   PieChart,
   Pie,
   Cell,
+  Tooltip,
+  ResponsiveContainer,
 } from 'recharts';
 
 import {
-  GRID_STROKE,
-  AXIS_TICK,
   TOOLTIP_CONTENT_STYLE,
   TOOLTIP_LABEL_STYLE,
   TOOLTIP_ITEM_STYLE,
@@ -71,9 +64,18 @@ function CancellationReasons({
   data: Item[];
   height: number;
 }) {
+  /*
+   * Sort ALL valid cancellation reasons first.
+   * We keep the full list because % Total must be calculated
+   * against ALL cancellations, not just the Top 5.
+   */
   const sorted = [...data]
-    .filter((item) => Number.isFinite(item.value) && item.value > 0)
-    .sort((a, b) => b.value - a.value);
+    .filter(
+      (item) =>
+        Number.isFinite(Number(item.value)) &&
+        Number(item.value) > 0
+    )
+    .sort((a, b) => Number(b.value) - Number(a.value));
 
   if (!sorted.length) {
     return (
@@ -86,7 +88,26 @@ function CancellationReasons({
     );
   }
 
+  /*
+   * Total = ALL cancellation reasons.
+   *
+   * Example:
+   * 38 / 117 = 32.5%
+   *
+   * NOT:
+   * 38 / Top-5-total
+   */
   const total = getTotal(sorted);
+
+  /*
+   * Only display the five highest cancellation reasons.
+   */
+  const top5 = sorted.slice(0, 5);
+
+  /*
+   * The longest visible bar is always the #1 reason.
+   */
+  const maxValue = Number(top5[0]?.value || 1);
 
   return (
     <div className="w-full">
@@ -97,15 +118,18 @@ function CancellationReasons({
         <span className="text-right">% Total</span>
       </div>
 
-      {/* Rows */}
+      {/* Top 5 Rows */}
       <div className="divide-y divide-black/[0.045]">
-        {sorted.map((item, index) => {
+        {top5.map((item, index) => {
+          const value = Number(item.value);
+
           const percentage = total
-            ? (item.value / total) * 100
+            ? (value / total) * 100
             : 0;
 
-          const max = sorted[0]?.value || 1;
-          const width = (item.value / max) * 100;
+          const width = maxValue
+            ? (value / maxValue) * 100
+            : 0;
 
           return (
             <div
@@ -137,7 +161,7 @@ function CancellationReasons({
 
               {/* Orders */}
               <div className="text-right text-xs font-semibold tabular-nums text-ink/80">
-                {formatNumber(item.value)}
+                {formatNumber(value)}
               </div>
 
               {/* Percentage */}
@@ -158,7 +182,7 @@ function CancellationReasons({
       </div>
 
       {/* Insight */}
-      {sorted.length > 0 && (
+      {top5.length > 0 && (
         <div className="mt-4 flex items-center gap-3 rounded-xl border border-[#F3DED1] bg-[#FFF7F2] px-4 py-3">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-lg shadow-sm">
             💡
@@ -166,11 +190,11 @@ function CancellationReasons({
 
           <div className="text-xs leading-5 text-ink/65">
             <span className="font-semibold text-brand">
-              {sorted[0].label}
+              {top5[0].label}
             </span>{' '}
             is the leading cancellation reason with{' '}
             <span className="font-semibold text-ink/80">
-              {formatNumber(sorted[0].value)} orders
+              {formatNumber(Number(top5[0].value))} orders
             </span>
             .
           </div>
@@ -192,8 +216,12 @@ function CancellationOwners({
   height: number;
 }) {
   const sorted = [...data]
-    .filter((item) => Number.isFinite(item.value) && item.value > 0)
-    .sort((a, b) => b.value - a.value);
+    .filter(
+      (item) =>
+        Number.isFinite(Number(item.value)) &&
+        Number(item.value) > 0
+    )
+    .sort((a, b) => Number(b.value) - Number(a.value));
 
   if (!sorted.length) {
     return (
@@ -210,7 +238,10 @@ function CancellationOwners({
 
   const chartData = sorted.map((item) => ({
     ...item,
-    percentage: total ? (item.value / total) * 100 : 0,
+    value: Number(item.value),
+    percentage: total
+      ? (Number(item.value) / total) * 100
+      : 0,
   }));
 
   return (
@@ -237,7 +268,11 @@ function CancellationOwners({
               {chartData.map((_, index) => (
                 <Cell
                   key={`cell-${index}`}
-                  fill={OWNER_COLORS[index % OWNER_COLORS.length]}
+                  fill={
+                    OWNER_COLORS[
+                      index % OWNER_COLORS.length
+                    ]
+                  }
                 />
               ))}
             </Pie>
@@ -247,8 +282,12 @@ function CancellationOwners({
               labelStyle={TOOLTIP_LABEL_STYLE}
               itemStyle={TOOLTIP_ITEM_STYLE}
               cursor={TOOLTIP_CURSOR}
-              formatter={(value: number, _: string, props: any) => [
-                `${formatNumber(value)} orders`,
+              formatter={(
+                value: number,
+                _: string,
+                props: any
+              ) => [
+                `${formatNumber(Number(value))} orders`,
                 props?.payload?.label ?? 'Owner',
               ]}
             />
@@ -260,6 +299,7 @@ function CancellationOwners({
           <div className="text-2xl font-extrabold leading-none tabular-nums text-ink">
             {formatNumber(total)}
           </div>
+
           <div className="mt-1 text-[10px] font-medium text-ink/45">
             Total Cancellations
           </div>
@@ -278,7 +318,9 @@ function CancellationOwners({
                 className="h-2.5 w-2.5 shrink-0 rounded-full"
                 style={{
                   backgroundColor:
-                    OWNER_COLORS[index % OWNER_COLORS.length],
+                    OWNER_COLORS[
+                      index % OWNER_COLORS.length
+                    ],
                 }}
               />
 
@@ -289,7 +331,7 @@ function CancellationOwners({
 
             <div className="ml-3 flex shrink-0 items-center gap-2.5">
               <span className="text-xs font-semibold tabular-nums text-ink/80">
-                {formatNumber(item.value)}
+                {formatNumber(Number(item.value))}
               </span>
 
               <span className="rounded-full bg-[#FFF3E9] px-2 py-1 text-[10px] font-semibold tabular-nums text-brand">
@@ -343,3 +385,4 @@ export default function CancellationBarChart({
     />
   );
 }
+```
