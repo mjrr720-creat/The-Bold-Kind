@@ -138,7 +138,7 @@ export default function Filters({
     }
 
     return filters.restaurant
-      .split(',')
+  .split('|')
       .map((item) => item.trim())
       .filter(Boolean)
       .filter((item) => allRestaurants.includes(item));
@@ -274,7 +274,7 @@ export default function Filters({
        */
       onChange({
         ...filters,
-        restaurant: draftRestaurants.join(','),
+        restaurant: draftRestaurants.join('|'),
       });
     }
 
