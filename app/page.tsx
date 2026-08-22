@@ -38,11 +38,11 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<DashboardTab>('orders');
 
   const [filters, setFilters] = useState<DashboardFilters>({
-  restaurant: 'All',
-  brand: 'All',        // <-- YE NAYI LINE ADD KAREIN
-  startDate: tenDaysAgoISO,
-  endDate: todayISO
-});
+    restaurant: 'All',
+    brand: 'All',
+    startDate: tenDaysAgoISO,
+    endDate: todayISO
+  });
   const [summary, setSummary] = useState<SummaryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -58,11 +58,11 @@ export default function DashboardPage() {
     setInsightsLoading(true);
     setInsightsError(null);
     const params = new URLSearchParams({
-  restaurant: filters.restaurant,
-  brand: filters.brand,     // <-- YE NAYI LINE ADD KAREIN
-  startDate: filters.startDate,
-  endDate: filters.endDate
-});
+      restaurant: filters.restaurant,
+      brand: filters.brand,
+      startDate: filters.startDate,
+      endDate: filters.endDate
+    });
     fetch(`/api/insights?${params}`)
       .then(async (r) => {
         const json = await r.json();
@@ -81,11 +81,11 @@ export default function DashboardPage() {
     setLoading(true);
     setError(null);
     const params = new URLSearchParams({
-  restaurant: filters.restaurant,
-  brand: filters.brand,     // <-- YE NAYI LINE ADD KAREIN
-  startDate: filters.startDate,
-  endDate: filters.endDate
-});
+      restaurant: filters.restaurant,
+      brand: filters.brand,
+      startDate: filters.startDate,
+      endDate: filters.endDate
+    });
     fetch(`/api/summary?${params}`)
       .then(async (r) => {
         const json = await r.json();
@@ -322,13 +322,16 @@ const salesOrdersOverview = summary
 </section>
 
 {/* Filters */}
-<div className="card-tight">
-  <Filters ... />
-</div>
-
-<div className="card-tight flex gap-4">
-  <Filters ... />
-  <BrandFilter ... />
+<div className="card-tight flex flex-wrap gap-4">
+  <Filters
+    filters={filters}
+    restaurants={summary?.restaurants ?? []}
+    onChange={setFilters}
+  />
+  <BrandFilter
+    value={filters.brand}
+    onChange={(brand) => setFilters({ ...filters, brand })}
+  />
 </div>
 
 {/* Loading / Error */}
