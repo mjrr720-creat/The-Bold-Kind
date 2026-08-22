@@ -4,13 +4,15 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-// All aggregation (sums, averages, daily/hourly grouping, previous-period
-// comparison) now happens inside Postgres via the get_dashboard_insights
-// RPC function. This route no longer downloads raw order rows at all —
-// it just forwards the params and returns the small JSON result.
+// Powers the "Additional Insights" section (kpis, restaurantPerformance,
+// cancellation/complaint breakdowns, weekday/hour patterns, etc.) —
+// this is the InsightsResponse shape from lib/insightsTypes.ts.
 //
-// See: dashboard_insights_rpc.sql (run once in Supabase SQL Editor to
-// create the function, plus the index note in that file).
+// All aggregation happens inside Postgres via get_dashboard_extra_insights.
+// See: dashboard_extra_insights_rpc.sql (run once in Supabase SQL Editor).
+//
+// This is separate from /api/summary, which powers the KPI cards + charts
+// at the top of the page (SummaryResponse shape) via get_dashboard_insights.
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
 
@@ -35,44 +37,21 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const { data, error } = await supabaseAdmin.rpc('get_dashboard_insights', {
-    p_restaurant: restaurant,
-    p_start_date: startDate,
-    p_end_date: endDate,
-  });
+  const { data, error } = await supabaseAdmin.rpc(
+    'get_dashboard_extra_insights',
+    {
+      p_restaurant: restaurant,
+      p_start_date: startDate,
+      p_end_date: endDate,
+    }
+  );
 
   if (error) {
     return NextResponse.json(
-      { error: error.message ?? 'Failed to load dashboard data.' },
+      { error: error.message ?? 'Failed to load insights.' },
       { status: 500 }
     );
   }
 
-  // distinct_restaurants_dashboard is already cheap (it's just distinct
-  // names), so it stays a separate lightweight call.
-  const { data: restaurantRows, error: restaurantErr } =
-    await supabaseAdmin.rpc('distinct_restaurants_dashboard');
-
-  if (restaurantErr) {
-    return NextResponse.json(
-      { error: restaurantErr.message },
-      { status: 500 }
-    );
-  }
-
-  const names: string[] = [];
-  for (const row of (restaurantRows ?? []) as Array<{
-    restaurant_name?: string | null;
-  }>) {
-    const name = String(row.restaurant_name ?? '').trim();
-    if (name && !names.includes(name)) {
-      names.push(name);
-    }
-  }
-  names.sort((a, b) => a.localeCompare(b));
-
-  return NextResponse.json({
-    ...data,
-    restaurants: names,
-  });
+  return NextResponse.json(data);
 }
