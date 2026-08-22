@@ -323,23 +323,12 @@ const salesOrdersOverview = summary
 
 {/* Filters */}
 <div className="card-tight">
-  <Filters
-    filters={filters}
-    restaurants={summary?.restaurants ?? []}
-    onChange={setFilters}
-  />
+  <Filters ... />
 </div>
 
 <div className="card-tight flex gap-4">
-  <Filters
-    filters={filters}
-    restaurants={summary?.restaurants ?? []}
-    onChange={setFilters}
-  />
-  <BrandFilter
-    value={filters.brand}
-    onChange={(brand) => setFilters({ ...filters, brand })}
-  />
+  <Filters ... />
+  <BrandFilter ... />
 </div>
 
 {/* Loading / Error */}
