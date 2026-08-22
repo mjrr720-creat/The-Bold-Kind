@@ -14,9 +14,10 @@ export const maxDuration = 60;
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
 
-  const restaurant = searchParams.get('restaurant') ?? 'All';
-  const startDate = searchParams.get('startDate');
-  const endDate = searchParams.get('endDate');
+const restaurant = searchParams.get('restaurant') ?? 'All';
+const brand = searchParams.get('brand') ?? 'All';    // <-- YE NAYI LINE ADD KAREIN
+const startDate = searchParams.get('startDate');
+const endDate = searchParams.get('endDate');
 
   if (!startDate || !endDate) {
     return NextResponse.json(
@@ -36,11 +37,11 @@ export async function GET(req: NextRequest) {
   }
 
   const { data, error } = await supabaseAdmin.rpc('get_dashboard_insights', {
-    p_restaurant: restaurant,
-    p_start_date: startDate,
-    p_end_date: endDate,
-  });
-
+  p_restaurant: restaurant,
+  p_start_date: startDate,
+  p_end_date: endDate,
+  p_brand: brand,     // <-- YE NAYI LINE ADD KAREIN
+});
   if (error) {
     return NextResponse.json(
       { error: error.message ?? 'Failed to load dashboard data.' },

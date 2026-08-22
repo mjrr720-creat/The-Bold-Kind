@@ -32,9 +32,10 @@ export interface OrderRow {
 }
 
 export interface DashboardFilters {
-  restaurant: string; // 'All' or a restaurant name
-  startDate: string; // yyyy-MM-dd
-  endDate: string; // yyyy-MM-dd
+  restaurant: string;
+  brand: string;        // <-- YE NAYI LINE ADD KAREIN
+  startDate: string;
+  endDate: string;
 }
 
 export interface SummaryResponse {
