@@ -31,17 +31,35 @@ function pctChange(current: number, previous: number): number | null {
   return ((current - previous) / previous) * 100;
 }
 
+function displayDateRange(start: string, end: string) {
+  if (!start || !end) return '';
+  const fmtDate = (value: string) =>
+    format(new Date(`${value}T00:00:00`), 'dd-MMM-yyyy');
+  return `${fmtDate(start)} – ${fmtDate(end)}`;
+}
+
 const todayISO = format(new Date(), 'yyyy-MM-dd');
 const tenDaysAgoISO = format(subDays(new Date(), 9), 'yyyy-MM-dd');
+const comparisonStartISO = format(subDays(new Date(), 19), 'yyyy-MM-dd');
+const comparisonEndISO = format(subDays(new Date(), 10), 'yyyy-MM-dd');
+
+type DashboardFiltersWithComparison = DashboardFilters & {
+  comparisonEnabled: boolean;
+  compareStartDate: string;
+  compareEndDate: string;
+};
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<DashboardTab>('orders');
 
-  const [filters, setFilters] = useState<DashboardFilters>({
+  const [filters, setFilters] = useState<DashboardFiltersWithComparison>({
     restaurant: 'All',
     brand: 'All',
     startDate: tenDaysAgoISO,
-    endDate: todayISO
+    endDate: todayISO,
+    comparisonEnabled: false,
+    compareStartDate: comparisonStartISO,
+    compareEndDate: comparisonEndISO,
   });
   const [summary, setSummary] = useState<SummaryResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -84,7 +102,14 @@ export default function DashboardPage() {
       restaurant: filters.restaurant,
       brand: filters.brand,
       startDate: filters.startDate,
-      endDate: filters.endDate
+      endDate: filters.endDate,
+      comparisonEnabled: String(filters.comparisonEnabled),
+      ...(filters.comparisonEnabled
+        ? {
+            compareStartDate: filters.compareStartDate,
+            compareEndDate: filters.compareEndDate,
+          }
+        : {}),
     });
     fetch(`/api/summary?${params}`)
       .then(async (r) => {
@@ -355,6 +380,20 @@ const salesOrdersOverview = summary
                 <section>
   <SectionHeader eyebrow="Overview" title="Key metrics" />
 
+  {filters.comparisonEnabled && (
+    <div className="mb-4 flex flex-wrap items-center gap-2 text-[12px]">
+      <span className="font-semibold text-[#3B352F]">
+        Comparing performance vs
+      </span>
+      <span className="rounded-full border border-[#F0E5DE] bg-[#FFF8F4] px-3 py-1 font-semibold text-[#F36A21]">
+        {displayDateRange(
+          filters.compareStartDate,
+          filters.compareEndDate
+        )}
+      </span>
+    </div>
+  )}
+
   <div className="space-y-4">
 
     {/* Main KPIs */}
@@ -466,6 +505,17 @@ const salesOrdersOverview = summary
                 {/* ===================== Sales & Orders Overview ===================== */}
                 <section>
                   <SectionHeader eyebrow="Trends" title="Sales &amp; Orders Overview" />
+                  {filters.comparisonEnabled && (
+                    <p className="mb-3 text-[12px] text-ink/45">
+                      Comparing performance vs{' '}
+                      <span className="font-semibold text-ink/65">
+                        {displayDateRange(
+                          filters.compareStartDate,
+                          filters.compareEndDate
+                        )}
+                      </span>
+                    </p>
+                  )}
                   <div className="card">
                     <SalesOrdersOverviewChart data={salesOrdersOverview} />
                   </div>
