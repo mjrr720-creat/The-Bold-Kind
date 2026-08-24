@@ -351,7 +351,12 @@ const salesOrdersOverview = summary
   <Filters
     filters={filters}
     restaurants={summary?.restaurants ?? []}
-    onChange={setFilters}
+    onChange={(nextFilters) =>
+  setFilters((prevFilters) => ({
+    ...prevFilters,
+    ...nextFilters,
+  }))
+}
   />
   <BrandFilter
     value={filters.brand}
