@@ -22,15 +22,23 @@ type IconName =
   | 'delivery'
   | 'voucher'
   | 'food'
-  | 'fc';
+  | 'fc'
+  | 'aov'
+  | 'commission'
+  | 'cancellation'
+  | 'ontime'
+  | 'complaint'
+  | 'discount';
 
 function getIconName(label: string): IconName {
   const name = label.toLowerCase();
 
   if (name.includes('store')) return 'store';
+  if (name.includes('order') && name.includes('hour')) return 'hour';
   if (name.includes('order')) return 'orders';
   if (name.includes('sales')) return 'sales';
-  if (name.includes('marketing')) return 'marketing';
+  if (name.includes('marketing fees')) return 'marketing';
+  if (name === 'marketing %' || name.includes('marketing %')) return 'marketing';
   if (name.includes('tax')) return 'tax';
   if (name.includes('prep')) return 'prep';
   if (name.includes('delay')) return 'delay';
@@ -38,15 +46,21 @@ function getIconName(label: string): IconName {
   if (name.includes('voucher')) return 'voucher';
   if (name.includes('food cost')) return 'food';
   if (name.includes('payout after fc')) return 'fc';
+  if (name === 'payout %' || name.includes('payout %')) return 'payout';
+  if (name.includes('average order value')) return 'aov';
+  if (name.includes('commission')) return 'commission';
+  if (name.includes('cancellation')) return 'cancellation';
+  if (name.includes('on-time')) return 'ontime';
+  if (name.includes('complaint')) return 'complaint';
+  if (name.includes('discount')) return 'discount';
   if (name.includes('payout')) return 'payout';
-  if (name.includes('order hour')) return 'hour';
 
   return 'sales';
 }
 
 function KpiIcon({ name }: { name: IconName }) {
   const common =
-    'h-[20px] w-[20px] stroke-[1.8] fill="none" stroke="currentColor"';
+    'h-[20px] w-[20px] fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"';
 
   switch (name) {
     case 'store':
@@ -90,8 +104,8 @@ function KpiIcon({ name }: { name: IconName }) {
       return (
         <svg viewBox="0 0 24 24" className={common}>
           <circle cx="12" cy="12" r="9" />
-          <path d="M12 12 12 7" />
-          <path d="M12 12 16 14" />
+          <path d="M12 12V7" />
+          <path d="M12 12l4 2" />
           <path d="M12 12h7" />
         </svg>
       );
@@ -171,88 +185,67 @@ function KpiIcon({ name }: { name: IconName }) {
           <path d="M15 3c3 1 4 3 4 5 0 2-1 3-4 3" />
         </svg>
       );
+
+    case 'aov':
+      return (
+        <svg viewBox="0 0 24 24" className={common}>
+          <path d="M4 17 9 12l4 3 7-8" />
+          <path d="M15 7h5v5" />
+        </svg>
+      );
+
+    case 'commission':
+      return (
+        <svg viewBox="0 0 24 24" className={common}>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M8 16 16 8" />
+          <circle cx="8.5" cy="8.5" r="1" />
+          <circle cx="15.5" cy="15.5" r="1" />
+        </svg>
+      );
+
+    case 'cancellation':
+      return (
+        <svg viewBox="0 0 24 24" className={common}>
+          <circle cx="12" cy="12" r="9" />
+          <path d="m9 9 6 6" />
+          <path d="m15 9-6 6" />
+        </svg>
+      );
+
+    case 'ontime':
+      return (
+        <svg viewBox="0 0 24 24" className={common}>
+          <circle cx="12" cy="12" r="9" />
+          <path d="m8 12 2.5 2.5L16 9" />
+        </svg>
+      );
+
+    case 'complaint':
+      return (
+        <svg viewBox="0 0 24 24" className={common}>
+          <path d="M5 6h14v10H9l-4 4V6Z" />
+          <path d="M9 10h.01" />
+          <path d="M12 10h.01" />
+          <path d="M15 10h.01" />
+        </svg>
+      );
+
+    case 'discount':
+      return (
+        <svg viewBox="0 0 24 24" className={common}>
+          <path d="m4 12 8-8h6l2 2v6l-8 8-8-8Z" />
+          <circle cx="15" cy="7" r="1" />
+        </svg>
+      );
+
+    default:
+      return (
+        <svg viewBox="0 0 24 24" className={common}>
+          <circle cx="12" cy="12" r="9" />
+        </svg>
+      );
   }
-}
-
-function Sparkline({
-  trendUp,
-  flat = false,
-}: {
-  trendUp: boolean;
-  flat?: boolean;
-}) {
-  if (flat) {
-    return (
-      <svg
-        viewBox="0 0 240 58"
-        preserveAspectRatio="none"
-        className="h-[52px] w-full"
-      >
-        <defs>
-          <linearGradient id="flatFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#94A3B8" stopOpacity="0.14" />
-            <stop offset="100%" stopColor="#94A3B8" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-
-        <path
-          d="M0 35 L240 35 L240 58 L0 58 Z"
-          fill="url(#flatFill)"
-        />
-
-        <path
-          d="M0 35 L240 35"
-          fill="none"
-          stroke="#64748B"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-        />
-
-        <circle cx="240" cy="35" r="4" fill="#64748B" />
-      </svg>
-    );
-  }
-
-  const stroke = trendUp ? '#18A566' : '#F04444';
-  const fillId = trendUp ? 'greenFill' : 'redFill';
-
-  return (
-    <svg
-      viewBox="0 0 240 58"
-      preserveAspectRatio="none"
-      className="h-[58px] w-full"
-    >
-      <defs>
-        <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={stroke} stopOpacity="0.15" />
-          <stop offset="100%" stopColor={stroke} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-
-      <path
-        d={
-          trendUp
-            ? 'M0 39 C15 29 23 37 37 35 C52 33 57 25 71 31 C85 38 93 43 108 36 C122 28 132 38 145 35 C159 31 169 38 182 30 C196 22 205 27 216 23 C227 19 233 18 240 12 L240 58 L0 58 Z'
-            : 'M0 38 C15 26 25 38 40 32 C54 26 62 34 75 29 C90 24 98 42 112 39 C127 36 134 26 148 34 C161 42 171 28 185 32 C199 37 205 28 216 31 C228 34 235 25 240 15 L240 58 L0 58 Z'
-        }
-        fill={`url(#${fillId})`}
-      />
-
-      <path
-        d={
-          trendUp
-            ? 'M0 39 C15 29 23 37 37 35 C52 33 57 25 71 31 C85 38 93 43 108 36 C122 28 132 38 145 35 C159 31 169 38 182 30 C196 22 205 27 216 23 C227 19 233 18 240 12'
-            : 'M0 38 C15 26 25 38 40 32 C54 26 62 34 75 29 C90 24 98 42 112 39 C127 36 134 26 148 34 C161 42 171 28 185 32 C199 37 205 28 216 31 C228 34 235 25 240 15'
-        }
-        fill="none"
-        stroke={stroke}
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-
-      <circle cx="240" cy={trendUp ? '12' : '15'} r="4" fill={stroke} />
-    </svg>
-  );
 }
 
 export default function KpiCard({
@@ -275,45 +268,31 @@ export default function KpiCard({
   const isFlat =
     hasTrend && Math.abs(deltaPct as number) < 0.05;
 
-  const isPayoutAfterFc = label.toLowerCase().includes('payout after fc');
-
   const icon = getIconName(label);
 
   return (
     <div
       className={`
-        group relative overflow-hidden
+        relative overflow-hidden
         rounded-[18px]
-        border border-[#E8E3DF]
+        border border-[#E7E1DC]
         bg-white
-        shadow-[0_2px_8px_rgba(20,20,20,0.035)]
+        px-5
+        py-5
+        shadow-[0_2px_8px_rgba(30,25,20,0.04)]
         transition-all duration-200
         hover:-translate-y-[1px]
-        hover:shadow-[0_8px_25px_rgba(20,20,20,0.08)]
-        ${compact ? 'min-h-[207px] px-5 py-4' : 'min-h-[273px] px-6 py-6'}
+        hover:shadow-[0_8px_24px_rgba(30,25,20,0.07)]
+        ${compact ? 'min-h-[154px]' : 'min-h-[190px]'}
         ${highlight ? 'ring-1 ring-[#F47A35]/15' : ''}
       `}
     >
-      {/* Soft orange background glow */}
-      <div
-        className="
-          pointer-events-none
-          absolute
-          left-[22px]
-          top-[22px]
-          h-[48px]
-          w-[48px]
-          rounded-[14px]
-          bg-[#FFF4EC]
-        "
-      />
-
       <div className="relative z-10 flex h-full flex-col">
+
         {/* Icon + Label */}
         <div className="flex items-center gap-4">
           <div
             className="
-              relative
               flex
               h-[48px]
               w-[48px]
@@ -331,7 +310,8 @@ export default function KpiCard({
           <div
             className={`
               font-medium
-              text-[#5F6877]
+              leading-[1.25]
+              text-[#586477]
               ${compact ? 'text-[13px]' : 'text-[14px]'}
             `}
           >
@@ -339,7 +319,7 @@ export default function KpiCard({
           </div>
         </div>
 
-        {/* Value + Trend */}
+        {/* Value + Percentage */}
         <div
           className={`
             flex
@@ -354,9 +334,9 @@ export default function KpiCard({
               font-semibold
               tracking-[-0.035em]
               leading-none
-              text-[#111827]
+              text-[#101828]
               tabular-nums
-              ${compact ? 'text-[25px]' : 'text-[36px]'}
+              ${compact ? 'text-[27px]' : 'text-[34px]'}
             `}
           >
             {value}
@@ -365,69 +345,74 @@ export default function KpiCard({
           {hasTrend && (
             <div
               className={`
-                flex
+                inline-flex
                 shrink-0
                 items-center
+                gap-1
                 rounded-full
+                border
                 px-2.5
-                py-1.5
-                text-[12px]
+                py-[5px]
+                text-[11px]
                 font-semibold
+                leading-none
                 tabular-nums
                 ${
                   isFlat
-                    ? 'bg-[#F1F3F5] text-[#5F6877]'
+                    ? `
+                      border-[#DDE1E6]
+                      bg-[#F5F6F7]
+                      text-[#667085]
+                    `
                     : trendUp
-                      ? 'bg-[#EAF8F0] text-[#159447]'
-                      : 'bg-[#FFF0F0] text-[#EF3F3F]'
+                      ? `
+                        border-[#D7F0E2]
+                        bg-[#F0FAF4]
+                        text-[#159447]
+                      `
+                      : `
+                        border-[#FFD9D9]
+                        bg-[#FFF2F2]
+                        text-[#E53935]
+                      `
                 }
               `}
             >
-              <span className="mr-1">
+              <span className="text-[12px]">
                 {isFlat ? '−' : trendUp ? '↗' : '↘'}
               </span>
 
-              {Math.abs(deltaPct as number).toFixed(1)}%
+              <span>
+                {Math.abs(deltaPct as number).toFixed(1)}%
+              </span>
             </div>
           )}
         </div>
 
-        {/* Previous / Comparison */}
+        {/* Previous Value */}
         <div
           className={`
-            text-[13px]
-            font-medium
-            text-[#667085]
-            ${compact ? 'mt-3' : 'mt-4'}
+            mt-4
+            text-[#737D8D]
+            ${compact ? 'text-[12px]' : 'text-[13px]'}
           `}
         >
           {previousLabel && previousValue !== undefined ? (
             <>
-              {previousLabel}:{' '}
+              <span className="font-medium">
+                {previousLabel}:
+              </span>{' '}
               <span className="font-semibold text-[#667085]">
                 {previousValue}
               </span>
             </>
           ) : (
-            <>
+            <span className="font-medium">
               {vsLabel}
-            </>
+            </span>
           )}
         </div>
 
-        {/* Sparkline */}
-        <div
-          className={`
-            mt-auto
-            w-full
-            ${compact ? 'pt-3' : 'pt-4'}
-          `}
-        >
-          <Sparkline
-            trendUp={trendUp}
-            flat={isPayoutAfterFc || isFlat}
-          />
-        </div>
       </div>
     </div>
   );
