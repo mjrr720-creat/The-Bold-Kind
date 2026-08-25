@@ -81,7 +81,7 @@ export default function KpiCard({
                 leading-none
                 text-[#101828]
                 tabular-nums
-                text-[48px]
+                text-[60px]
               "
             >
               {value}
