@@ -34,14 +34,18 @@ export default function KpiCard({
       className={`
         relative overflow-hidden
         rounded-[18px]
-        border border-[#E7E1DC]
-        bg-white
+        border border-[#E8DED6]
+        bg-gradient-to-br
+        from-white
+        via-[#FFFDFB]
+        to-[#FFF1E6]
         px-5
         py-5
         shadow-[0_2px_8px_rgba(30,25,20,0.04)]
         transition-all duration-200
         hover:-translate-y-[1px]
-        hover:shadow-[0_8px_24px_rgba(30,25,20,0.07)]
+        hover:border-[#E4D5CB]
+        hover:shadow-[0_8px_24px_rgba(30,25,20,0.08)]
         ${compact ? 'min-h-[154px]' : 'min-h-[190px]'}
         ${highlight ? 'ring-1 ring-[#F47A35]/15' : ''}
       `}
