@@ -29,6 +29,10 @@ export default function KpiCard({
   const isFlat =
     hasTrend && Math.abs(deltaPct as number) < 0.05;
 
+  // Total Stores special layout
+  const isTotalStores =
+    label.trim().toLowerCase() === 'total stores';
+
   return (
     <div
       className={`
@@ -64,104 +68,127 @@ export default function KpiCard({
           {label}
         </div>
 
-        {/* Value + Percentage */}
-        <div
-          className={`
-            flex
-            items-center
-            gap-3
-            ${compact ? 'mt-5' : 'mt-6'}
-          `}
-        >
-          <div
-            className={`
-              whitespace-nowrap
-              font-semibold
-              tracking-[-0.035em]
-              leading-none
-              text-[#101828]
-              tabular-nums
-              ${compact ? 'text-[27px]' : 'text-[34px]'}
-            `}
-          >
-            {value}
+        {/* ========================= */}
+        {/* TOTAL STORES SPECIAL CARD */}
+        {/* ========================= */}
+        {isTotalStores ? (
+          <div className="flex flex-1 items-center">
+            <div
+              className="
+                mt-2
+                font-semibold
+                tracking-[-0.045em]
+                leading-none
+                text-[#101828]
+                tabular-nums
+                text-[48px]
+              "
+            >
+              {value}
+            </div>
           </div>
-
-          {hasTrend && (
+        ) : (
+          <>
+            {/* Value + Percentage */}
             <div
               className={`
-                inline-flex
-                shrink-0
+                flex
                 items-center
-                gap-1
-                rounded-full
-                border
-                px-2.5
-                py-[5px]
-                text-[11px]
-                font-semibold
-                leading-none
-                tabular-nums
-
-                ${
-                  isFlat
-                    ? `
-                      border-[#DDE1E6]
-                      bg-[#F5F6F7]
-                      text-[#667085]
-                    `
-                    : trendUp
-                      ? `
-                        border-[#D7F0E2]
-                        bg-[#F0FAF4]
-                        text-[#159447]
-                      `
-                      : `
-                        border-[#FFD9D9]
-                        bg-[#FFF2F2]
-                        text-[#E53935]
-                      `
-                }
+                gap-3
+                ${compact ? 'mt-5' : 'mt-6'}
               `}
             >
-              <span className="text-[12px]">
-                {isFlat
-                  ? '−'
-                  : trendUp
-                    ? '↗'
-                    : '↘'}
-              </span>
+              <div
+                className={`
+                  whitespace-nowrap
+                  font-semibold
+                  tracking-[-0.035em]
+                  leading-none
+                  text-[#101828]
+                  tabular-nums
+                  ${compact ? 'text-[27px]' : 'text-[34px]'}
+                `}
+              >
+                {value}
+              </div>
 
-              <span>
-                {Math.abs(deltaPct as number).toFixed(1)}%
-              </span>
+              {hasTrend && (
+                <div
+                  className={`
+                    inline-flex
+                    shrink-0
+                    items-center
+                    gap-1
+                    rounded-full
+                    border
+                    px-2.5
+                    py-[5px]
+                    text-[11px]
+                    font-semibold
+                    leading-none
+                    tabular-nums
+
+                    ${
+                      isFlat
+                        ? `
+                          border-[#DDE1E6]
+                          bg-[#F5F6F7]
+                          text-[#667085]
+                        `
+                        : trendUp
+                          ? `
+                            border-[#D7F0E2]
+                            bg-[#F0FAF4]
+                            text-[#159447]
+                          `
+                          : `
+                            border-[#FFD9D9]
+                            bg-[#FFF2F2]
+                            text-[#E53935]
+                          `
+                    }
+                  `}
+                >
+                  <span className="text-[12px]">
+                    {isFlat
+                      ? '−'
+                      : trendUp
+                        ? '↗'
+                        : '↘'}
+                  </span>
+
+                  <span>
+                    {Math.abs(deltaPct as number).toFixed(1)}%
+                  </span>
+                </div>
+              )}
             </div>
-          )}
-        </div>
 
-        {/* Previous Value */}
-        <div
-          className={`
-            mt-4
-            text-[#737D8D]
-            ${compact ? 'text-[12px]' : 'text-[13px]'}
-          `}
-        >
-          {previousLabel && previousValue !== undefined ? (
-            <>
-              <span className="font-medium">
-                {previousLabel}:
-              </span>{' '}
-              <span className="font-semibold text-[#667085]">
-                {previousValue}
-              </span>
-            </>
-          ) : (
-            <span className="font-medium">
-              {vsLabel}
-            </span>
-          )}
-        </div>
+            {/* Previous Value */}
+            <div
+              className={`
+                mt-4
+                text-[#737D8D]
+                ${compact ? 'text-[12px]' : 'text-[13px]'}
+              `}
+            >
+              {previousLabel && previousValue !== undefined ? (
+                <>
+                  <span className="font-medium">
+                    {previousLabel}:
+                  </span>{' '}
+                  <span className="font-semibold text-[#667085]">
+                    {previousValue}
+                  </span>
+                </>
+              ) : (
+                <span className="font-medium">
+                  {vsLabel}
+                </span>
+              )}
+            </div>
+          </>
+        )}
 
       </div>
     </div>
