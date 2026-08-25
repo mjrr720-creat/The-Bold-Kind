@@ -4,6 +4,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { format, subDays } from 'date-fns';
 import { DashboardFilters, SummaryResponse } from '@/lib/types';
 import { InsightsResponse } from '@/lib/insightsTypes';
+import {
+  compareModeLabel,
+  formatShortRange,
+  previousPeriodOf,
+} from '@/lib/dateRange';
 import KpiCard from '@/components/KpiCard';
 import Filters from '@/components/Filters';
 import UploadButton from '@/components/UploadButton';
@@ -31,39 +36,41 @@ function pctChange(current: number, previous: number): number | null {
   return ((current - previous) / previous) * 100;
 }
 
-function displayDateRange(start: string, end: string) {
-  if (!start || !end) return '';
-  const fmtDate = (value: string) =>
-    format(new Date(`${value}T00:00:00`), 'dd-MMM-yyyy');
-  return `${fmtDate(start)} – ${fmtDate(end)}`;
-}
-
 const todayISO = format(new Date(), 'yyyy-MM-dd');
 const tenDaysAgoISO = format(subDays(new Date(), 9), 'yyyy-MM-dd');
-const comparisonStartISO = format(subDays(new Date(), 19), 'yyyy-MM-dd');
-const comparisonEndISO = format(subDays(new Date(), 10), 'yyyy-MM-dd');
+const defaultCompare = previousPeriodOf(tenDaysAgoISO, todayISO);
 
-type DashboardFiltersWithComparison = DashboardFilters & {
-  comparisonEnabled: boolean;
-  compareStartDate: string;
-  compareEndDate: string;
-};
+function applyFilterDefaults(next: DashboardFilters): DashboardFilters {
+  if (next.compareEnabled && next.compareMode === 'previous') {
+    const previous = previousPeriodOf(next.startDate, next.endDate);
+    return {
+      ...next,
+      compareStartDate: previous.startDate,
+      compareEndDate: previous.endDate,
+    };
+  }
+  return next;
+}
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<DashboardTab>('orders');
 
-  const [filters, setFilters] = useState<DashboardFiltersWithComparison>({
+  const [filters, setFilters] = useState<DashboardFilters>({
     restaurant: 'All',
     brand: 'All',
     startDate: tenDaysAgoISO,
     endDate: todayISO,
-    comparisonEnabled: false,
-    compareStartDate: comparisonStartISO,
-    compareEndDate: comparisonEndISO,
+    compareEnabled: true,
+    compareMode: 'previous',
+    compareStartDate: defaultCompare.startDate,
+    compareEndDate: defaultCompare.endDate,
   });
   const [summary, setSummary] = useState<SummaryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [compareSummary, setCompareSummary] = useState<SummaryResponse | null>(
+    null
+  );
 
   // Separate state/fetch for the additional insights section — kept fully
   // independent from `summary` so a problem here can never affect the
@@ -71,6 +78,12 @@ export default function DashboardPage() {
   const [insights, setInsights] = useState<InsightsResponse | null>(null);
   const [insightsLoading, setInsightsLoading] = useState(true);
   const [insightsError, setInsightsError] = useState<string | null>(null);
+  const [compareInsights, setCompareInsights] =
+    useState<InsightsResponse | null>(null);
+
+  const handleFiltersChange = useCallback((next: DashboardFilters) => {
+    setFilters(applyFilterDefaults(next));
+  }, []);
 
   const loadInsights = useCallback(() => {
     setInsightsLoading(true);
@@ -95,6 +108,32 @@ export default function DashboardPage() {
     loadInsights();
   }, [loadInsights]);
 
+  const loadCompareInsights = useCallback(() => {
+    if (!filters.compareEnabled) {
+      setCompareInsights(null);
+      return;
+    }
+
+    const params = new URLSearchParams({
+      restaurant: filters.restaurant,
+      brand: filters.brand,
+      startDate: filters.compareStartDate,
+      endDate: filters.compareEndDate,
+    });
+
+    fetch(`/api/insights?${params}`)
+      .then(async (r) => {
+        const json = await r.json();
+        if (!r.ok || json?.error) throw new Error(json?.error ?? 'Failed to load insights');
+        setCompareInsights(json);
+      })
+      .catch(() => setCompareInsights(null));
+  }, [filters]);
+
+  useEffect(() => {
+    loadCompareInsights();
+  }, [loadCompareInsights]);
+
   const loadSummary = useCallback(() => {
     setLoading(true);
     setError(null);
@@ -102,14 +141,7 @@ export default function DashboardPage() {
       restaurant: filters.restaurant,
       brand: filters.brand,
       startDate: filters.startDate,
-      endDate: filters.endDate,
-      comparisonEnabled: String(filters.comparisonEnabled),
-      ...(filters.comparisonEnabled
-        ? {
-            compareStartDate: filters.compareStartDate,
-            compareEndDate: filters.compareEndDate,
-          }
-        : {}),
+      endDate: filters.endDate
     });
     fetch(`/api/summary?${params}`)
       .then(async (r) => {
@@ -125,6 +157,32 @@ export default function DashboardPage() {
     loadSummary();
   }, [loadSummary]);
 
+  const loadCompareSummary = useCallback(() => {
+    if (!filters.compareEnabled) {
+      setCompareSummary(null);
+      return;
+    }
+
+    const params = new URLSearchParams({
+      restaurant: filters.restaurant,
+      brand: filters.brand,
+      startDate: filters.compareStartDate,
+      endDate: filters.compareEndDate,
+    });
+
+    fetch(`/api/summary?${params}`)
+      .then(async (r) => {
+        const json = await r.json();
+        if (!r.ok || json?.error) throw new Error(json?.error ?? 'Failed to load comparison');
+        setCompareSummary(json);
+      })
+      .catch(() => setCompareSummary(null));
+  }, [filters]);
+
+  useEffect(() => {
+    loadCompareSummary();
+  }, [loadCompareSummary]);
+
   const fmt = (n: number | null | undefined) =>
     n === null || n === undefined || !Number.isFinite(n) ? '—' : n.toLocaleString(undefined, { maximumFractionDigits: 2 });
   const fmtK = (n: number | null | undefined) => {
@@ -132,17 +190,89 @@ export default function DashboardPage() {
     return n >= 1000 ? `${(n / 1000).toFixed(2)}K` : fmt(n);
   };
   const fmtMin = (n: number | null | undefined) => (n === null || n === undefined ? '—' : n.toFixed(2));
+  const fmtPct = (n: number | null | undefined) =>
+    n === null || n === undefined || !Number.isFinite(n) ? '—' : `${n.toFixed(2)}%`;
 
-  // Sales & Orders Overview — merges the existing monthlyFinancials (Sales)
-  // and monthlyOrders (Orders) series from /api/summary, which are already
-  // scoped to the selected restaurant + date filters. No new data source.
-const salesOrdersOverview = summary
-  ? summary.dailyFinancials.map((d) => ({
-      date: d.date,
-      sales: d.sales,
-      orders: summary.dailyOrders.find((o) => o.date === d.date)?.count ?? 0
-    }))
-  : [];
+  const compareOn = filters.compareEnabled;
+  const vsLabel = filters.compareMode === 'custom' ? 'vs custom' : 'vs prev';
+  const compareRangeLabel = compareOn
+    ? formatShortRange(filters.compareStartDate, filters.compareEndDate)
+    : '';
+  const compareChartLabel =
+    compareOn && compareSummary
+      ? `${compareModeLabel(filters.compareMode)} (${compareRangeLabel})`
+      : null;
+
+  const prevTotals = compareOn
+    ? {
+        totalOrders:
+          compareSummary?.totalOrders ??
+          (filters.compareMode === 'previous'
+            ? summary?.previous.totalOrders
+            : undefined),
+        totalSales:
+          compareSummary?.totalSales ??
+          (filters.compareMode === 'previous'
+            ? summary?.previous.totalSales
+            : undefined),
+        payoutAmount:
+          compareSummary?.payoutAmount ??
+          (filters.compareMode === 'previous'
+            ? summary?.previous.payoutAmount
+            : undefined),
+        totalMarketingFees:
+          compareSummary?.totalMarketingFees ??
+          (filters.compareMode === 'previous'
+            ? summary?.previous.totalMarketingFees
+            : undefined),
+        taxAmount:
+          compareSummary?.taxAmount ??
+          (filters.compareMode === 'previous'
+            ? summary?.previous.taxAmount
+            : undefined),
+        avgOrderHour: compareSummary?.avgOrderHour ?? null,
+        avgPrepTimeMin: compareSummary?.avgPrepTimeMin ?? null,
+        avgDelayVsEstimateMin: compareSummary?.avgDelayVsEstimateMin ?? null,
+        avgDeliveryTimeMin: compareSummary?.avgDeliveryTimeMin ?? null,
+        voucherFundedByYou: compareSummary?.voucherFundedByYou,
+        payoutAfterFoodCost: compareSummary?.payoutAfterFoodCost,
+      }
+    : null;
+
+  const compareOverview = compareSummary
+    ? compareSummary.dailyFinancials.map((d) => ({
+        date: d.date,
+        sales: d.sales,
+        orders:
+          compareSummary.dailyOrders.find((o) => o.date === d.date)?.count ?? 0,
+      }))
+    : [];
+
+  const salesOrdersOverview = summary
+    ? summary.dailyFinancials.map((d, i) => ({
+        date: d.date,
+        sales: d.sales,
+        orders: summary.dailyOrders.find((o) => o.date === d.date)?.count ?? 0,
+        prevSales: compareOn && compareSummary ? compareOverview[i]?.sales ?? 0 : undefined,
+        prevOrders: compareOn && compareSummary ? compareOverview[i]?.orders ?? 0 : undefined,
+        compareDate: compareOn && compareSummary ? compareOverview[i]?.date : undefined,
+      }))
+    : [];
+
+  const dailyOrdersChart = summary
+    ? summary.dailyOrders.map((d, i) => ({
+        date: d.date,
+        count: d.count,
+        prevCount:
+          compareOn && compareSummary
+            ? compareSummary.dailyOrders[i]?.count ?? 0
+            : undefined,
+        compareDate:
+          compareOn && compareSummary
+            ? compareSummary.dailyOrders[i]?.date
+            : undefined,
+      }))
+    : [];
 
   return (
     <div className="min-h-screen bg-surface-sunken">
@@ -347,20 +477,17 @@ const salesOrdersOverview = summary
 </section>
 
 {/* Filters */}
-<div className="card-tight flex flex-wrap gap-4">
+<div className="card-tight">
   <Filters
     filters={filters}
     restaurants={summary?.restaurants ?? []}
-    onChange={(nextFilters) =>
-  setFilters((prevFilters) => ({
-    ...prevFilters,
-    ...nextFilters,
-  }))
-}
-  />
-  <BrandFilter
-    value={filters.brand}
-    onChange={(brand) => setFilters({ ...filters, brand })}
+    onChange={handleFiltersChange}
+    trailing={
+      <BrandFilter
+        value={filters.brand}
+        onChange={(brand) => handleFiltersChange({ ...filters, brand })}
+      />
+    }
   />
 </div>
 
@@ -385,16 +512,17 @@ const salesOrdersOverview = summary
                 <section>
   <SectionHeader eyebrow="Overview" title="Key metrics" />
 
-  {filters.comparisonEnabled && (
-    <div className="mb-4 flex flex-wrap items-center gap-2 text-[12px]">
-      <span className="font-semibold text-[#3B352F]">
-        Comparing performance vs
+  {compareOn && (
+    <div className="mb-4 flex flex-wrap items-center gap-2 rounded-[14px] border border-[#F0E5DE] bg-[#FFF8F4] px-4 py-2.5 text-[13px] text-ink/70">
+      <span className="font-semibold text-[#E96A2C]">Comparing</span>
+      <span>
+        {formatShortRange(filters.startDate, filters.endDate)}
       </span>
-      <span className="rounded-full border border-[#F0E5DE] bg-[#FFF8F4] px-3 py-1 font-semibold text-[#F36A21]">
-        {displayDateRange(
-          filters.compareStartDate,
-          filters.compareEndDate
-        )}
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-ink/30">
+        vs
+      </span>
+      <span>
+        {compareModeLabel(filters.compareMode)} ({compareRangeLabel})
       </span>
     </div>
   )}
@@ -412,45 +540,88 @@ const salesOrdersOverview = summary
   <KpiCard
     value={fmtK(summary.totalOrders)}
     label="Total Orders"
-    previousLabel="Prev. Orders"
-    previousValue={fmtK(summary.previous.totalOrders)}
-    deltaPct={pctChange(
-      summary.totalOrders,
-      summary.previous.totalOrders
-    )}
+    previousLabel={
+      compareOn && prevTotals?.totalOrders !== undefined
+        ? 'Prev. Orders'
+        : undefined
+    }
+    previousValue={
+      compareOn && prevTotals?.totalOrders !== undefined
+        ? fmtK(prevTotals.totalOrders)
+        : undefined
+    }
+    deltaPct={
+      compareOn && prevTotals?.totalOrders !== undefined
+        ? pctChange(summary.totalOrders, prevTotals.totalOrders)
+        : undefined
+    }
+    vsLabel={vsLabel}
   />
 
   <KpiCard
     value={fmtK(summary.totalSales)}
     label="Total Sales"
-    previousLabel="Prev. Sales"
-    previousValue={fmtK(summary.previous.totalSales)}
-    deltaPct={pctChange(
-      summary.totalSales,
-      summary.previous.totalSales
-    )}
+    previousLabel={
+      compareOn && prevTotals?.totalSales !== undefined
+        ? 'Prev. Sales'
+        : undefined
+    }
+    previousValue={
+      compareOn && prevTotals?.totalSales !== undefined
+        ? fmtK(prevTotals.totalSales)
+        : undefined
+    }
+    deltaPct={
+      compareOn && prevTotals?.totalSales !== undefined
+        ? pctChange(summary.totalSales, prevTotals.totalSales)
+        : undefined
+    }
+    vsLabel={vsLabel}
   />
 
   <KpiCard
     value={fmtK(summary.payoutAmount)}
     label="Payout Amount"
-    previousLabel="Prev. Payout"
-    previousValue={fmtK(summary.previous.payoutAmount)}
-    deltaPct={pctChange(
-      summary.payoutAmount,
-      summary.previous.payoutAmount
-    )}
+    previousLabel={
+      compareOn && prevTotals?.payoutAmount !== undefined
+        ? 'Prev. Payout'
+        : undefined
+    }
+    previousValue={
+      compareOn && prevTotals?.payoutAmount !== undefined
+        ? fmtK(prevTotals.payoutAmount)
+        : undefined
+    }
+    deltaPct={
+      compareOn && prevTotals?.payoutAmount !== undefined
+        ? pctChange(summary.payoutAmount, prevTotals.payoutAmount)
+        : undefined
+    }
+    vsLabel={vsLabel}
   />
 
   <KpiCard
     value={fmtK(summary.totalMarketingFees)}
     label="Marketing Fees"
-    previousLabel="Prev. Marketing Fees"
-    previousValue={fmtK(summary.previous.totalMarketingFees)}
-    deltaPct={pctChange(
-      summary.totalMarketingFees,
-      summary.previous.totalMarketingFees
-    )}
+    previousLabel={
+      compareOn && prevTotals?.totalMarketingFees !== undefined
+        ? 'Prev. Marketing Fees'
+        : undefined
+    }
+    previousValue={
+      compareOn && prevTotals?.totalMarketingFees !== undefined
+        ? fmtK(prevTotals.totalMarketingFees)
+        : undefined
+    }
+    deltaPct={
+      compareOn && prevTotals?.totalMarketingFees !== undefined
+        ? pctChange(
+            summary.totalMarketingFees,
+            prevTotals.totalMarketingFees
+          )
+        : undefined
+    }
+    vsLabel={vsLabel}
   />
 
 </div>
@@ -463,36 +634,103 @@ const salesOrdersOverview = summary
     value={fmtK(summary.taxAmount)}
     label="Tax Amount"
     compact
+    previousLabel={compareOn ? 'Prev. Tax' : undefined}
+    previousValue={compareOn ? fmtK(prevTotals?.taxAmount) : undefined}
+    deltaPct={
+      compareOn
+        ? pctChange(summary.taxAmount, prevTotals?.taxAmount ?? 0)
+        : undefined
+    }
+    vsLabel={vsLabel}
   />
 
   <KpiCard
     value={fmtMin(summary.avgOrderHour)}
     label="Avg. Order Hour"
     compact
+    previousLabel={compareOn ? 'Prev. Hour' : undefined}
+    previousValue={
+      compareOn ? fmtMin(prevTotals?.avgOrderHour) : undefined
+    }
+    deltaPct={
+      compareOn && prevTotals?.avgOrderHour
+        ? pctChange(summary.avgOrderHour ?? 0, prevTotals.avgOrderHour)
+        : undefined
+    }
+    vsLabel={vsLabel}
   />
 
   <KpiCard
     value={fmtMin(summary.avgPrepTimeMin)}
     label="Avg. Prep Time"
     compact
+    previousLabel={compareOn ? 'Prev. Prep' : undefined}
+    previousValue={
+      compareOn ? fmtMin(prevTotals?.avgPrepTimeMin) : undefined
+    }
+    deltaPct={
+      compareOn && prevTotals?.avgPrepTimeMin
+        ? pctChange(summary.avgPrepTimeMin ?? 0, prevTotals.avgPrepTimeMin)
+        : undefined
+    }
+    vsLabel={vsLabel}
   />
 
   <KpiCard
     value={fmtMin(summary.avgDelayVsEstimateMin)}
     label="Avg. Delay vs Estimate"
     compact
+    previousLabel={compareOn ? 'Prev. Delay' : undefined}
+    previousValue={
+      compareOn ? fmtMin(prevTotals?.avgDelayVsEstimateMin) : undefined
+    }
+    deltaPct={
+      compareOn && prevTotals?.avgDelayVsEstimateMin
+        ? pctChange(
+            summary.avgDelayVsEstimateMin ?? 0,
+            prevTotals.avgDelayVsEstimateMin
+          )
+        : undefined
+    }
+    vsLabel={vsLabel}
   />
 
   <KpiCard
     value={fmtMin(summary.avgDeliveryTimeMin)}
     label="Avg. Delivery Time"
     compact
+    previousLabel={compareOn ? 'Prev. Delivery' : undefined}
+    previousValue={
+      compareOn ? fmtMin(prevTotals?.avgDeliveryTimeMin) : undefined
+    }
+    deltaPct={
+      compareOn && prevTotals?.avgDeliveryTimeMin
+        ? pctChange(
+            summary.avgDeliveryTimeMin ?? 0,
+            prevTotals.avgDeliveryTimeMin
+          )
+        : undefined
+    }
+    vsLabel={vsLabel}
   />
 
   <KpiCard
     value={fmtK(summary.voucherFundedByYou)}
     label="Voucher Funded"
     compact
+    previousLabel={compareOn ? 'Prev. Voucher' : undefined}
+    previousValue={
+      compareOn ? fmtK(prevTotals?.voucherFundedByYou) : undefined
+    }
+    deltaPct={
+      compareOn && prevTotals?.voucherFundedByYou !== undefined
+        ? pctChange(
+            summary.voucherFundedByYou,
+            prevTotals.voucherFundedByYou
+          )
+        : undefined
+    }
+    vsLabel={vsLabel}
   />
 
   <KpiCard
@@ -500,6 +738,19 @@ const salesOrdersOverview = summary
     label="Payout after FC"
     highlight
     compact
+    previousLabel={compareOn ? 'Prev. Payout FC' : undefined}
+    previousValue={
+      compareOn ? fmtK(prevTotals?.payoutAfterFoodCost) : undefined
+    }
+    deltaPct={
+      compareOn && prevTotals?.payoutAfterFoodCost !== undefined
+        ? pctChange(
+            summary.payoutAfterFoodCost,
+            prevTotals.payoutAfterFoodCost
+          )
+        : undefined
+    }
+    vsLabel={vsLabel}
   />
 
 </div>
@@ -510,19 +761,11 @@ const salesOrdersOverview = summary
                 {/* ===================== Sales & Orders Overview ===================== */}
                 <section>
                   <SectionHeader eyebrow="Trends" title="Sales &amp; Orders Overview" />
-                  {filters.comparisonEnabled && (
-                    <p className="mb-3 text-[12px] text-ink/45">
-                      Comparing performance vs{' '}
-                      <span className="font-semibold text-ink/65">
-                        {displayDateRange(
-                          filters.compareStartDate,
-                          filters.compareEndDate
-                        )}
-                      </span>
-                    </p>
-                  )}
                   <div className="card">
-                    <SalesOrdersOverviewChart data={salesOrdersOverview} />
+                    <SalesOrdersOverviewChart
+                      data={salesOrdersOverview}
+                      compareLabel={compareChartLabel}
+                    />
                   </div>
                 </section>
 
@@ -554,11 +797,19 @@ const salesOrdersOverview = summary
   </div>
 
   <div className="card">
-    <h3 className="chart-title mb-3">
+    <h3 className="chart-title mb-1">
       Orders by Date
     </h3>
+    {compareChartLabel && (
+      <p className="chart-subtitle mb-3">
+        Comparing vs {compareChartLabel}
+      </p>
+    )}
 
-    <MonthlyOrdersChart data={summary.dailyOrders} />
+    <MonthlyOrdersChart
+      data={dailyOrdersChart}
+      compareLabel={compareChartLabel}
+    />
   </div>
 </div>
                 </section>
@@ -585,16 +836,169 @@ const salesOrdersOverview = summary
                           <SectionHeader eyebrow="Rates" title="Efficiency &amp; quality" />
                           <div className="space-y-4">
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                              <KpiCard value={fmt(insights.kpis.avgOrderValue)} label="Average Order Value" compact />
-                              <KpiCard value={insights.kpis.commissionPct !== null ? `${insights.kpis.commissionPct.toFixed(2)}%` : '—'} label="Commission %" compact />
-                              <KpiCard value={insights.kpis.payoutPct !== null ? `${insights.kpis.payoutPct.toFixed(2)}%` : '—'} label="Payout %" compact />
-                              <KpiCard value={insights.kpis.cancellationPct !== null ? `${insights.kpis.cancellationPct.toFixed(2)}%` : '—'} label="Cancellation %" compact />
+                              <KpiCard
+                                value={fmt(insights.kpis.avgOrderValue)}
+                                label="Average Order Value"
+                                compact
+                                previousLabel={compareOn ? 'Prev. AOV' : undefined}
+                                previousValue={
+                                  compareOn
+                                    ? fmt(compareInsights?.kpis.avgOrderValue)
+                                    : undefined
+                                }
+                                deltaPct={
+                                  compareOn && compareInsights?.kpis.avgOrderValue
+                                    ? pctChange(
+                                        insights.kpis.avgOrderValue ?? 0,
+                                        compareInsights.kpis.avgOrderValue
+                                      )
+                                    : undefined
+                                }
+                                vsLabel={vsLabel}
+                              />
+                              <KpiCard
+                                value={insights.kpis.commissionPct !== null ? `${insights.kpis.commissionPct.toFixed(2)}%` : '—'}
+                                label="Commission %"
+                                compact
+                                previousLabel={compareOn ? 'Prev. Commission' : undefined}
+                                previousValue={
+                                  compareOn
+                                    ? fmtPct(compareInsights?.kpis.commissionPct)
+                                    : undefined
+                                }
+                                deltaPct={
+                                  compareOn && compareInsights?.kpis.commissionPct
+                                    ? pctChange(
+                                        insights.kpis.commissionPct ?? 0,
+                                        compareInsights.kpis.commissionPct
+                                      )
+                                    : undefined
+                                }
+                                vsLabel={vsLabel}
+                              />
+                              <KpiCard
+                                value={insights.kpis.payoutPct !== null ? `${insights.kpis.payoutPct.toFixed(2)}%` : '—'}
+                                label="Payout %"
+                                compact
+                                previousLabel={compareOn ? 'Prev. Payout %' : undefined}
+                                previousValue={
+                                  compareOn
+                                    ? fmtPct(compareInsights?.kpis.payoutPct)
+                                    : undefined
+                                }
+                                deltaPct={
+                                  compareOn && compareInsights?.kpis.payoutPct
+                                    ? pctChange(
+                                        insights.kpis.payoutPct ?? 0,
+                                        compareInsights.kpis.payoutPct
+                                      )
+                                    : undefined
+                                }
+                                vsLabel={vsLabel}
+                              />
+                              <KpiCard
+                                value={insights.kpis.cancellationPct !== null ? `${insights.kpis.cancellationPct.toFixed(2)}%` : '—'}
+                                label="Cancellation %"
+                                compact
+                                previousLabel={compareOn ? 'Prev. Cancel %' : undefined}
+                                previousValue={
+                                  compareOn
+                                    ? fmtPct(compareInsights?.kpis.cancellationPct)
+                                    : undefined
+                                }
+                                deltaPct={
+                                  compareOn && compareInsights?.kpis.cancellationPct
+                                    ? pctChange(
+                                        insights.kpis.cancellationPct ?? 0,
+                                        compareInsights.kpis.cancellationPct
+                                      )
+                                    : undefined
+                                }
+                                vsLabel={vsLabel}
+                              />
                             </div>
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                              <KpiCard value={insights.kpis.onTimeDeliveryPct !== null ? `${insights.kpis.onTimeDeliveryPct.toFixed(2)}%` : '—'} label="On-Time Delivery %" compact />
-                              <KpiCard value={insights.kpis.complaintPct !== null ? `${insights.kpis.complaintPct.toFixed(2)}%` : '—'} label="Complaint %" compact />
-                              <KpiCard value={fmtK(insights.kpis.restaurantDiscount)} label="Restaurant Discount" compact />
-                              <KpiCard value={insights.kpis.marketingPct !== null ? `${insights.kpis.marketingPct.toFixed(2)}%` : '—'} label="Marketing %" compact />
+                              <KpiCard
+                                value={insights.kpis.onTimeDeliveryPct !== null ? `${insights.kpis.onTimeDeliveryPct.toFixed(2)}%` : '—'}
+                                label="On-Time Delivery %"
+                                compact
+                                previousLabel={compareOn ? 'Prev. On-time' : undefined}
+                                previousValue={
+                                  compareOn
+                                    ? fmtPct(compareInsights?.kpis.onTimeDeliveryPct)
+                                    : undefined
+                                }
+                                deltaPct={
+                                  compareOn && compareInsights?.kpis.onTimeDeliveryPct
+                                    ? pctChange(
+                                        insights.kpis.onTimeDeliveryPct ?? 0,
+                                        compareInsights.kpis.onTimeDeliveryPct
+                                      )
+                                    : undefined
+                                }
+                                vsLabel={vsLabel}
+                              />
+                              <KpiCard
+                                value={insights.kpis.complaintPct !== null ? `${insights.kpis.complaintPct.toFixed(2)}%` : '—'}
+                                label="Complaint %"
+                                compact
+                                previousLabel={compareOn ? 'Prev. Complaint %' : undefined}
+                                previousValue={
+                                  compareOn
+                                    ? fmtPct(compareInsights?.kpis.complaintPct)
+                                    : undefined
+                                }
+                                deltaPct={
+                                  compareOn && compareInsights?.kpis.complaintPct
+                                    ? pctChange(
+                                        insights.kpis.complaintPct ?? 0,
+                                        compareInsights.kpis.complaintPct
+                                      )
+                                    : undefined
+                                }
+                                vsLabel={vsLabel}
+                              />
+                              <KpiCard
+                                value={fmtK(insights.kpis.restaurantDiscount)}
+                                label="Restaurant Discount"
+                                compact
+                                previousLabel={compareOn ? 'Prev. Discount' : undefined}
+                                previousValue={
+                                  compareOn
+                                    ? fmtK(compareInsights?.kpis.restaurantDiscount)
+                                    : undefined
+                                }
+                                deltaPct={
+                                  compareOn &&
+                                  compareInsights?.kpis.restaurantDiscount !== undefined
+                                    ? pctChange(
+                                        insights.kpis.restaurantDiscount,
+                                        compareInsights.kpis.restaurantDiscount
+                                      )
+                                    : undefined
+                                }
+                                vsLabel={vsLabel}
+                              />
+                              <KpiCard
+                                value={insights.kpis.marketingPct !== null ? `${insights.kpis.marketingPct.toFixed(2)}%` : '—'}
+                                label="Marketing %"
+                                compact
+                                previousLabel={compareOn ? 'Prev. Marketing %' : undefined}
+                                previousValue={
+                                  compareOn
+                                    ? fmtPct(compareInsights?.kpis.marketingPct)
+                                    : undefined
+                                }
+                                deltaPct={
+                                  compareOn && compareInsights?.kpis.marketingPct
+                                    ? pctChange(
+                                        insights.kpis.marketingPct ?? 0,
+                                        compareInsights.kpis.marketingPct
+                                      )
+                                    : undefined
+                                }
+                                vsLabel={vsLabel}
+                              />
                             </div>
                           </div>
                         </section>

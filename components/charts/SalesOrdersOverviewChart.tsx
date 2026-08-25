@@ -17,6 +17,9 @@ export interface SalesOrdersPoint {
   date: string;
   sales: number;
   orders: number;
+  prevSales?: number;
+  prevOrders?: number;
+  compareDate?: string;
 }
 
 const fmtSales = (v: number) => {
@@ -40,12 +43,17 @@ const formatDate = (value: string) => {
 
 export default function SalesOrdersOverviewChart({
   data,
+  compareLabel,
 }: {
   data: SalesOrdersPoint[];
+  compareLabel?: string | null;
 }) {
   const [period, setPeriod] = useState<'Daily' | 'Weekly' | 'Monthly'>(
     'Daily'
   );
+  const [showCompare, setShowCompare] = useState(true);
+  const hasCompare = Boolean(compareLabel);
+  const comparing = hasCompare && showCompare;
 
   if (
     !data ||
@@ -91,11 +99,11 @@ export default function SalesOrdersOverviewChart({
       {/* Chart Header */}
       <div className="mb-3 flex items-center justify-between">
         {/* Legend */}
-        <div className="flex items-center gap-5">
+        <div className="flex flex-wrap items-center gap-5">
           <div className="flex items-center gap-2">
             <span className="h-[10px] w-[10px] rounded-full bg-[#E96A2C]" />
             <span className="text-[12px] font-medium text-[#5F6268]">
-              Sales (K)
+              Sales
             </span>
           </div>
 
@@ -105,10 +113,49 @@ export default function SalesOrdersOverviewChart({
               Orders
             </span>
           </div>
+
+          {comparing && (
+            <>
+              <div className="flex items-center gap-2">
+                <span className="h-[10px] w-[10px] rounded-full bg-[#C9C0B6]" />
+                <span className="text-[12px] font-medium text-[#5F6268]">
+                  Compare sales
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="h-[10px] w-[10px] rounded-full border border-[#E96A2C] bg-white" />
+                <span className="text-[12px] font-medium text-[#5F6268]">
+                  Compare orders
+                </span>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Right Controls */}
         <div className="flex items-center gap-3">
+          {hasCompare && (
+            <label className="flex cursor-pointer items-center gap-2 text-[11px] font-medium text-[#5F6268]">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={showCompare}
+                onClick={() => setShowCompare((v) => !v)}
+                className={`relative h-[22px] w-[38px] rounded-full transition ${
+                  showCompare ? 'bg-[#F36A21]' : 'bg-[#E4DFDB]'
+                }`}
+              >
+                <span
+                  className={`absolute top-[2px] h-[18px] w-[18px] rounded-full bg-white shadow-sm transition ${
+                    showCompare ? 'left-[18px]' : 'left-[2px]'
+                  }`}
+                />
+              </button>
+              <span className="max-w-[220px] truncate">
+                Compare {compareLabel}
+              </span>
+            </label>
+          )}
           {/* Period Switch */}
           <div className="flex h-[32px] items-center rounded-[8px] border border-[#F0F0F0] bg-white p-[2px]">
             {(['Daily', 'Weekly', 'Monthly'] as const).map((item) => {
@@ -286,22 +333,42 @@ export default function SalesOrdersOverviewChart({
                 padding: '2px 0',
               }}
               formatter={(value: number, name: string) => {
-                if (name === 'Sales') {
+                if (name === 'Sales' || name === 'Compare sales') {
                   return [
                     value.toLocaleString(undefined, {
                       maximumFractionDigits: 2,
                     }),
-                    'Sales',
+                    name,
                   ];
                 }
 
                 return [
                   value.toLocaleString(),
-                  'Orders',
+                  name,
                 ];
               }}
-              labelFormatter={(label) => formatDate(label)}
+              labelFormatter={(label, payload) => {
+                const compareDate = payload?.[0]?.payload?.compareDate;
+                const main = formatDate(label);
+                if (comparing && compareDate) {
+                  return `${main} vs ${formatDate(compareDate)}`;
+                }
+                return main;
+              }}
             />
+
+            {/* Compare Sales Bars */}
+            {comparing && (
+              <Bar
+                yAxisId="sales"
+                dataKey="prevSales"
+                name="Compare sales"
+                fill="#D9D2CC"
+                radius={[5, 5, 0, 0]}
+                maxBarSize={35}
+                animationDuration={700}
+              />
+            )}
 
             {/* Sales Bars */}
             <Bar
@@ -348,6 +415,26 @@ export default function SalesOrdersOverviewChart({
               connectNulls
               animationDuration={700}
             />
+
+            {comparing && (
+              <Line
+                yAxisId="orders"
+                type="monotone"
+                dataKey="prevOrders"
+                name="Compare orders"
+                stroke="#C9C0B6"
+                strokeWidth={2}
+                strokeDasharray="5 4"
+                dot={{
+                  r: 3,
+                  stroke: '#FFFFFF',
+                  strokeWidth: 1.5,
+                  fill: '#C9C0B6',
+                }}
+                connectNulls
+                animationDuration={700}
+              />
+            )}
           </ComposedChart>
         </ResponsiveContainer>
       </div>

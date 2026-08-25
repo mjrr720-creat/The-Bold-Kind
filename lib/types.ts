@@ -31,11 +31,17 @@ export interface OrderRow {
   order_items: string | null;
 }
 
+export type CompareMode = 'previous' | 'custom';
+
 export interface DashboardFilters {
   restaurant: string;
-  brand: string;        // <-- YE NAYI LINE ADD KAREIN
+  brand: string;
   startDate: string;
   endDate: string;
+  compareEnabled: boolean;
+  compareMode: CompareMode;
+  compareStartDate: string;
+  compareEndDate: string;
 }
 
 export interface SummaryResponse {

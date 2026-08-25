@@ -24,6 +24,8 @@ import {
 interface DailyOrderPoint {
   date: string;
   count: number;
+  prevCount?: number;
+  compareDate?: string;
 }
 
 const formatDate = (value: string) => {
@@ -49,9 +51,12 @@ const formatOrders = (value: number) => {
 
 export default function MonthlyOrdersChart({
   data,
+  compareLabel,
 }: {
   data: DailyOrderPoint[];
+  compareLabel?: string | null;
 }) {
+  const comparing = Boolean(compareLabel);
   if (
     !data ||
     data.length === 0 ||
@@ -126,14 +131,33 @@ export default function MonthlyOrdersChart({
           labelStyle={TOOLTIP_LABEL_STYLE}
           itemStyle={TOOLTIP_ITEM_STYLE}
           cursor={TOOLTIP_CURSOR}
-          labelFormatter={(value) =>
-            `Date: ${formatDate(String(value))}`
-          }
-          formatter={(value: number) => [
-            `${value.toLocaleString()} orders`,
-            'Orders',
+          labelFormatter={(value, payload) => {
+            const compareDate = payload?.[0]?.payload?.compareDate;
+            const main = formatDate(String(value));
+            if (comparing && compareDate) {
+              return `${main} vs ${formatDate(String(compareDate))}`;
+            }
+            return `Date: ${main}`;
+          }}
+          formatter={(value: number, name: string) => [
+            `${Number(value).toLocaleString()} orders`,
+            name,
           ]}
         />
+
+        {comparing && (
+          <Area
+            type="monotone"
+            dataKey="prevCount"
+            name="Compare"
+            stroke="#C9C0B6"
+            strokeWidth={2}
+            strokeDasharray="5 4"
+            fill="#C9C0B6"
+            fillOpacity={0.18}
+            dot={false}
+          />
+        )}
 
         <Area
           type="monotone"

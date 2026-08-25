@@ -4,6 +4,7 @@ interface KpiCardProps {
   previousLabel?: string;
   previousValue?: string;
   deltaPct?: number | null;
+  vsLabel?: string;
   compact?: boolean;
   highlight?: boolean;
 }
@@ -14,6 +15,7 @@ export default function KpiCard({
   previousLabel,
   previousValue,
   deltaPct,
+  vsLabel = 'vs prev',
   compact,
   highlight,
 }: KpiCardProps) {
@@ -110,7 +112,7 @@ export default function KpiCard({
               </span>
 
               <span className="text-[11px] text-[#9A928C]">
-                vs prev
+                {vsLabel}
               </span>
             </div>
           )}
