@@ -11,6 +11,7 @@ import {
 import { DashboardFilters } from '@/lib/types';
 import { previousPeriodOf } from '@/lib/dateRange';
 import DateRangePicker from '@/components/DateRangePicker';
+import BrandFilter from '@/components/BrandFilter';
 
 interface Props {
   filters: DashboardFilters;
@@ -23,7 +24,6 @@ export default function Filters({
   filters,
   restaurants,
   onChange,
-  trailing,
 }: Props) {
   const [restaurantOpen, setRestaurantOpen] =
     useState(false);
@@ -38,11 +38,9 @@ export default function Filters({
   const [calendarCloseSignal, setCalendarCloseSignal] =
     useState(0);
 
-  /*
-   * -------------------------------------------------------
-   * RESTAURANTS
-   * -------------------------------------------------------
-   */
+  /* =====================================================
+     RESTAURANTS
+     ===================================================== */
 
   const allRestaurants = useMemo(() => {
     return restaurants
@@ -103,10 +101,6 @@ export default function Filters({
       const exists =
         previous.includes(restaurant);
 
-      /*
-       * If everything is selected and the user
-       * clicks one item, keep only that item.
-       */
       if (
         previous.length ===
           allRestaurants.length &&
@@ -135,19 +129,12 @@ export default function Filters({
   };
 
   const applyRestaurantSelection = () => {
-    /*
-     * Preserve existing behavior:
-     * Don't apply an empty selection.
-     */
     if (draftRestaurants.length === 0) {
       setRestaurantOpen(false);
       setSearch('');
       return;
     }
 
-    /*
-     * All restaurants = "All"
-     */
     if (
       draftRestaurants.length ===
         allRestaurants.length &&
@@ -160,10 +147,6 @@ export default function Filters({
         restaurant: 'All',
       });
     } else {
-      /*
-       * Multiple restaurants remain pipe-separated
-       * exactly as before.
-       */
       onChange({
         ...filters,
         restaurant:
@@ -186,11 +169,9 @@ export default function Filters({
           ? committedRestaurants[0]
           : `${committedRestaurants.length} restaurants selected`;
 
-  /*
-   * -------------------------------------------------------
-   * CLOSE RESTAURANT DROPDOWN OUTSIDE
-   * -------------------------------------------------------
-   */
+  /* =====================================================
+     CLOSE RESTAURANT DROPDOWN
+     ===================================================== */
 
   useEffect(() => {
     const handleClickOutside = (
@@ -220,11 +201,9 @@ export default function Filters({
     };
   }, []);
 
-  /*
-   * -------------------------------------------------------
-   * COMPARISON
-   * -------------------------------------------------------
-   */
+  /* =====================================================
+     COMPARISON
+     ===================================================== */
 
   const setCompareEnabled = (
     enabled: boolean
@@ -250,13 +229,11 @@ export default function Filters({
         filters.compareMode === 'custom'
           ? 'custom'
           : 'previous',
-
       compareStartDate:
         filters.compareMode === 'custom'
           ? filters.compareStartDate ||
             previous.startDate
           : previous.startDate,
-
       compareEndDate:
         filters.compareMode === 'custom'
           ? filters.compareEndDate ||
@@ -265,22 +242,22 @@ export default function Filters({
     });
   };
 
-  /*
-   * -------------------------------------------------------
-   * RENDER
-   * -------------------------------------------------------
-   */
+  /* =====================================================
+     RENDER
+     ===================================================== */
 
   return (
     <div className="w-full">
-      {/* ==================================================
-          TOP FILTER ROW
-          ================================================== */}
+
+      {/* =================================================
+          TOP FILTERS
+          ================================================= */}
 
       <div className="flex w-full flex-col gap-5 lg:flex-row lg:items-stretch">
-        {/* -----------------------------------------------
+
+        {/* =================================================
             BRAND
-            ----------------------------------------------- */}
+            ================================================= */}
 
         <div className="min-w-0 flex-1">
           <FilterSectionTitle
@@ -288,31 +265,26 @@ export default function Filters({
             title="Brand"
           />
 
-          <button
-            type="button"
-            className="mt-3 flex h-[52px] w-full items-center justify-between rounded-[11px] border border-[#E9E3DF] bg-white px-3.5 text-left transition hover:border-[#DCD3CD]"
-          >
-            <span className="flex min-w-0 items-center gap-3">
-              <BrandIcon />
-
-              <span className="truncate text-[14px] font-medium text-[#34363A]">
-                All brands
-              </span>
-            </span>
-
-            <ChevronDown />
-          </button>
+          <div className="mt-3">
+            <BrandFilter
+              value={filters.brand}
+              onChange={(brand) =>
+                onChange({
+                  ...filters,
+                  brand,
+                })
+              }
+            />
+          </div>
         </div>
 
-        {/* -----------------------------------------------
-            VERTICAL DIVIDER
-            ----------------------------------------------- */}
+        {/* DIVIDER */}
 
         <div className="hidden w-px bg-[#EEE9E6] lg:block" />
 
-        {/* -----------------------------------------------
+        {/* =================================================
             RESTAURANT
-            ----------------------------------------------- */}
+            ================================================= */}
 
         <div
           ref={restaurantRef}
@@ -352,6 +324,7 @@ export default function Filters({
 
           {restaurantOpen && (
             <div className="absolute left-0 top-[calc(100%+8px)] z-[300] w-full min-w-[340px] overflow-hidden rounded-[16px] border border-[#E7E2DE] bg-white shadow-[0_18px_50px_rgba(25,20,15,0.16)]">
+
               {/* SEARCH */}
 
               <div className="border-b border-[#ECE8E5] p-3">
@@ -459,7 +432,7 @@ export default function Filters({
                 )}
               </div>
 
-              {/* DROPDOWN FOOTER */}
+              {/* FOOTER */}
 
               <div className="flex items-center justify-between border-t border-[#ECE8E5] bg-[#FCFBFA] px-4 py-3">
                 <span className="text-[11px] font-medium text-[#8A8581]">
@@ -487,15 +460,13 @@ export default function Filters({
           )}
         </div>
 
-        {/* -----------------------------------------------
-            VERTICAL DIVIDER
-            ----------------------------------------------- */}
+        {/* DIVIDER */}
 
         <div className="hidden w-px bg-[#EEE9E6] lg:block" />
 
-        {/* -----------------------------------------------
+        {/* =================================================
             DATE RANGE
-            ----------------------------------------------- */}
+            ================================================= */}
 
         <div className="min-w-0 flex-[1.35]">
           <FilterSectionTitle
@@ -528,21 +499,17 @@ export default function Filters({
             />
           </div>
         </div>
-
-        {/* Optional trailing content */}
-
-        {trailing}
       </div>
 
-      {/* ==================================================
-          COMPARISON SECTION
-          ================================================== */}
+      {/* =================================================
+          COMPARISON
+          ================================================= */}
 
       <div className="mt-8 rounded-[14px] border border-[#F3DDD0] bg-gradient-to-r from-[#FFFDFC] via-[#FFFBF9] to-[#FFFDFC] px-5 py-5 shadow-[0_5px_20px_rgba(243,106,33,0.04)]">
+
         <div className="flex w-full flex-col gap-5 xl:flex-row xl:items-center">
-          {/* ---------------------------------------------
-              COMPARE
-              --------------------------------------------- */}
+
+          {/* COMPARE */}
 
           <div className="flex min-w-[235px] items-center gap-3 xl:border-r xl:border-[#F0E5DF] xl:pr-7">
             <div>
@@ -588,9 +555,7 @@ export default function Filters({
             </div>
           </div>
 
-          {/* ---------------------------------------------
-              COMPARISON PERIOD
-              --------------------------------------------- */}
+          {/* COMPARISON PERIOD */}
 
           {filters.compareEnabled && (
             <>
@@ -600,6 +565,7 @@ export default function Filters({
                 </div>
 
                 <div className="flex h-[48px] items-center rounded-[10px] border border-[#E8E0DB] bg-white p-[4px]">
+
                   <button
                     type="button"
                     onClick={() => {
@@ -650,9 +616,7 @@ export default function Filters({
                 </div>
               </div>
 
-              {/* -----------------------------------------
-                  COMPARE DATES
-                  ----------------------------------------- */}
+              {/* COMPARE DATES */}
 
               <div className="min-w-0 flex-1 xl:border-l xl:border-[#F0E5DF] xl:pl-7">
                 <div className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-[#85888D]">
@@ -701,9 +665,9 @@ export default function Filters({
   );
 }
 
-/* ========================================================
+/* =======================================================
    SECTION TITLE
-   ======================================================== */
+   ======================================================= */
 
 function FilterSectionTitle({
   number,
@@ -725,40 +689,9 @@ function FilterSectionTitle({
   );
 }
 
-/* ========================================================
-   BRAND ICON
-   ======================================================== */
-
-function BrandIcon() {
-  return (
-    <svg
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      className="shrink-0 text-[#F36A21]"
-    >
-      <path
-        d="M20.5 13.5L13.5 20.5C12.7 21.3 11.3 21.3 10.5 20.5L3.5 13.5C3.1 13.1 3 12.5 3 12V5C3 3.9 3.9 3 5 3H12C12.5 3 13.1 3.1 13.5 3.5L20.5 10.5C21.3 11.3 21.3 12.7 20.5 13.5Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinejoin="round"
-      />
-
-      <circle
-        cx="8"
-        cy="8"
-        r="1.5"
-        stroke="currentColor"
-        strokeWidth="1.5"
-      />
-    </svg>
-  );
-}
-
-/* ========================================================
+/* =======================================================
    RESTAURANT ICON
-   ======================================================== */
+   ======================================================= */
 
 function RestaurantIcon() {
   return (
@@ -814,9 +747,9 @@ function RestaurantIcon() {
   );
 }
 
-/* ========================================================
+/* =======================================================
    SEARCH ICON
-   ======================================================== */
+   ======================================================= */
 
 function SearchIcon() {
   return (
@@ -845,9 +778,9 @@ function SearchIcon() {
   );
 }
 
-/* ========================================================
+/* =======================================================
    CHECK ICON
-   ======================================================== */
+   ======================================================= */
 
 function CheckIcon() {
   return (
@@ -868,9 +801,9 @@ function CheckIcon() {
   );
 }
 
-/* ========================================================
+/* =======================================================
    CHEVRON DOWN
-   ======================================================== */
+   ======================================================= */
 
 function ChevronDown({
   rotated = false,
