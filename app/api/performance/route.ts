@@ -19,10 +19,105 @@ export const maxDuration = 60;
 const TABLE = 'talabat_performance';
 
 // The table's columns were imported verbatim from the Talabat performance
-// export (spaces, mixed case, punctuation). We select('*') and read them
-// back with bracket notation via this helper rather than trying to alias
-// every quoted identifier in the query string.
+// export (spaces, mixed case, punctuation). We read them back with bracket
+// notation via this helper rather than trying to alias every identifier.
 type PerfRow = Record<string, any>;
+
+// Only the columns actually read anywhere below. Selecting these explicitly
+// (instead of '*') cuts payload size on top of the date/outlet filtering.
+// Columns with spaces/punctuation must be double-quoted inside the select
+// list so PostgREST's mini query-language parses them as single identifiers
+// (this is separate from .eq()/.gte()/.in(), which take the column name as
+// a plain string and don't need quoting).
+const SELECT_COLUMNS = [
+  '"Date"',
+  '"Outlet name"',
+  '"Restaurant ID"',
+  '"Orders count"',
+  '"Successful Orders"',
+  '"Gross Sales"',
+  '"Cancelled Orders"',
+  '"Total customer complaints received"',
+  '"Average preparation time (minutes)"',
+  '"Orders marked as ready"',
+  '"Pro Revenue"',
+  '"Viewed your menu"',
+  '"Impressions"',
+  '"Added items to cart"',
+  '"Orders from new customers"',
+  '"Sales loss"',
+  '"Orders from returning customers"',
+  '"Placed an order"',
+  '"Orders in Bucket1: < 5 minutes"',
+  '"Orders in Bucket2: >= 5 Mins and < 10 Mins"',
+  '"Orders in Bucket3: >= 10 Mins"',
+  '"Avoidable Cancellation Reason"',
+  '"Avoidable cancellation count"',
+  '"Customer Complaint Reason"',
+].join(',');
+
+// ---------------------------------------------------------------------
+// Lightweight in-memory caches for `restaurants` and `availableDateRange`.
+// Both describe the FULL table, independent of any single request's
+// filters, so they don't need to be recomputed (or scan the whole table)
+// on every request — a short TTL keeps them fresh without adding an
+// external cache dependency. Cache lives for the lifetime of the warm
+// server instance; a cold start simply recomputes it once.
+// ---------------------------------------------------------------------
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+let restaurantsCache: { data: string[]; expiresAt: number } | null = null;
+let dateRangeCache: { data: { min: string | null; max: string | null }; expiresAt: number } | null = null;
+
+async function getRestaurantsCached(): Promise<string[]> {
+  const now = Date.now();
+  if (restaurantsCache && restaurantsCache.expiresAt > now) {
+    return restaurantsCache.data;
+  }
+
+  const t0 = Date.now();
+  // Only the outlet-name column — far lighter than select('*') even though
+  // it still walks every row, and it's cached for CACHE_TTL_MS afterwards.
+  const nameRows = await fetchAllRows<PerfRow>((from, to) =>
+    supabaseAdmin.from(TABLE).select('"Outlet name"').range(from, to)
+  );
+  console.log(`[/api/performance] restaurants scan: ${Date.now() - t0}ms (${nameRows.length} rows)`);
+
+  const set = new Set<string>();
+  for (const row of nameRows) {
+    const name = str(row, 'Outlet name');
+    if (name) set.add(name);
+  }
+  const restaurants = Array.from(set).sort((a, b) => a.localeCompare(b));
+  restaurantsCache = { data: restaurants, expiresAt: now + CACHE_TTL_MS };
+  return restaurants;
+}
+
+async function getDateRangeCached(): Promise<{ min: string | null; max: string | null }> {
+  const now = Date.now();
+  if (dateRangeCache && dateRangeCache.expiresAt > now) {
+    return dateRangeCache.data;
+  }
+
+  const t0 = Date.now();
+  // MIN/MAX via a single-row, indexed order-by-limit-1 query in each
+  // direction — O(log n) with an index on "Date", never a full scan.
+  const [minRes, maxRes] = await Promise.all([
+    supabaseAdmin.from(TABLE).select('"Date"').order('Date', { ascending: true }).limit(1).maybeSingle(),
+    supabaseAdmin.from(TABLE).select('"Date"').order('Date', { ascending: false }).limit(1).maybeSingle(),
+  ]);
+  console.log(`[/api/performance] date-range lookup: ${Date.now() - t0}ms`);
+
+  if (minRes.error) throw minRes.error;
+  if (maxRes.error) throw maxRes.error;
+
+  const min = minRes.data ? normalizeRowDate(minRes.data as PerfRow) : null;
+  const max = maxRes.data ? normalizeRowDate(maxRes.data as PerfRow) : null;
+
+  const data = { min, max };
+  dateRangeCache = { data, expiresAt: now + CACHE_TTL_MS };
+  return data;
+}
 
 function num(row: PerfRow, key: string): number {
   const v = row[key];
@@ -110,53 +205,61 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid startDate or endDate.' }, { status: 400 });
   }
 
-  let rows: PerfRow[];
-  try {
-    rows = await fetchAllRows<PerfRow>((from, to) =>
-      supabaseAdmin.from(TABLE).select('*').range(from, to)
-    );
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to load performance data.';
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
-
-  // Distinct outlet names + min/max Date, from the FULL table (not
-  // filtered), so the restaurant dropdown and the "sensible default range"
-  // logic always reflect everything in the table, not just the current
-  // selection.
-  const restaurantSet = new Set<string>();
-  let minDate: string | null = null;
-  let maxDate: string | null = null;
-  for (const row of rows) {
-    const name = str(row, 'Outlet name');
-    if (name) restaurantSet.add(name);
-
-    const rowDate = normalizeRowDate(row);
-    if (rowDate) {
-      if (minDate === null || rowDate < minDate) minDate = rowDate;
-      if (maxDate === null || rowDate > maxDate) maxDate = rowDate;
-    }
-  }
-  const restaurants = Array.from(restaurantSet).sort((a, b) => a.localeCompare(b));
-
   // Restaurant filter: 'All' or pipe-separated outlet names.
   const selectedRestaurants =
     restaurant && restaurant !== 'All'
       ? restaurant.split('|').map((r) => r.trim()).filter(Boolean)
       : null;
 
-  const filtered = rows.filter((row) => {
-    const rowDate = normalizeRowDate(row);
-    if (!rowDate) return false;
-    if (rowDate < startDate || rowDate > endDate) return false;
+  // ---------------------------------------------------------------------
+  // Fetch only the rows this request actually needs: Date range and (if
+  // set) outlet filtering are applied directly in the Supabase query
+  // instead of downloading the full table and filtering in JS. Each
+  // request builds its own filtered query from scratch, so current-period
+  // and comparison-period calls stay fully independent — nothing here is
+  // shared or mutated across requests.
+  // ---------------------------------------------------------------------
+  const buildFilteredQuery = () => {
+    let q = supabaseAdmin
+      .from(TABLE)
+      .select(SELECT_COLUMNS)
+      .gte('Date', startDate)
+      .lte('Date', endDate);
 
     if (selectedRestaurants) {
-      const outlet = str(row, 'Outlet name');
-      if (!selectedRestaurants.includes(outlet)) return false;
+      q = selectedRestaurants.length === 1
+        ? q.eq('Outlet name', selectedRestaurants[0])
+        : q.in('Outlet name', selectedRestaurants);
     }
+    return q;
+  };
 
-    return true;
-  });
+  let filtered: PerfRow[];
+  let restaurants: string[];
+  let minDate: string | null;
+  let maxDate: string | null;
+  try {
+    const fetchStart = Date.now();
+    const [filteredRows, restaurantList, dateRange] = await Promise.all([
+      fetchAllRows<PerfRow>((from, to) => buildFilteredQuery().range(from, to)),
+      getRestaurantsCached(),
+      getDateRangeCached(),
+    ]);
+    console.log(
+      `[/api/performance] query fetch: ${Date.now() - fetchStart}ms ` +
+      `(restaurant=${restaurant}, ${startDate}..${endDate}, rows=${filteredRows.length})`
+    );
+
+    filtered = filteredRows;
+    restaurants = restaurantList;
+    minDate = dateRange.min;
+    maxDate = dateRange.max;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to load performance data.';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+
+  const aggStart = Date.now();
 
   // ---------------------------------------------------------------------
   // KPIs
@@ -309,6 +412,8 @@ export async function GET(req: NextRequest) {
       complaintPct: r.orders > 0 ? (r.complaints / r.orders) * 100 : null,
     }))
     .sort((a, b) => b.grossSales - a.grossSales);
+
+  console.log(`[/api/performance] aggregation: ${Date.now() - aggStart}ms (rows=${filtered.length})`);
 
   const response: PerformanceResponse = {
     kpis: {
