@@ -1,23 +1,21 @@
 'use client';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
 export type DashboardTab = 'orders' | 'performance';
 
-interface Props {
-  active: DashboardTab;
-  onChange: (tab: DashboardTab) => void;
-}
-
 const NAV_ITEMS: {
   id: DashboardTab;
+  href: string;
   label: string;
   icon: ReactNode;
 }[] = [
   {
     id: 'orders',
+    href: '/',
     label: 'Order Analysis',
     icon: (
       <svg
@@ -42,6 +40,7 @@ const NAV_ITEMS: {
   },
   {
     id: 'performance',
+    href: '/performance',
     label: 'Performance Analysis',
     icon: (
       <svg
@@ -72,8 +71,9 @@ const NAV_ITEMS: {
   },
 ];
 
-export default function Sidebar({ active, onChange }: Props) {
+export default function Sidebar() {
   const router = useRouter();
+  const pathname = usePathname();
 
   const [profileOpen, setProfileOpen] = useState(false);
 
@@ -205,13 +205,12 @@ export default function Sidebar({ active, onChange }: Props) {
 
         <div className="space-y-2">
           {NAV_ITEMS.map((item) => {
-            const isActive = active === item.id;
+            const isActive = pathname === item.href;
 
             return (
-              <button
+              <Link
                 key={item.id}
-                type="button"
-                onClick={() => onChange(item.id)}
+                href={item.href}
                 title={item.label}
                 aria-current={isActive ? 'page' : undefined}
                 className={`
@@ -324,7 +323,7 @@ export default function Sidebar({ active, onChange }: Props) {
                     strokeLinejoin="round"
                   />
                 </svg>
-              </button>
+              </Link>
             );
           })}
         </div>

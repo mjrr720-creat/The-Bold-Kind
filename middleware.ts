@@ -40,7 +40,7 @@ export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
   // Not logged in → send to login
-  if (!user && pathname === '/') {
+  if (!user && (pathname === '/' || pathname === '/performance')) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
@@ -53,5 +53,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/', '/login'],
+  matcher: ['/', '/performance', '/login'],
 };

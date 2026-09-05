@@ -12,7 +12,7 @@ import {
 import KpiCard from '@/components/KpiCard';
 import Filters from '@/components/Filters';
 import UploadButton from '@/components/UploadButton';
-import Sidebar, { DashboardTab } from '@/components/Sidebar';
+import DashboardShell from '@/components/DashboardShell';
 import SectionHeader from '@/components/SectionHeader';
 import PaymentMethodPie from '@/components/charts/PaymentMethodPie';
 import HourlyTraffic from '@/components/charts/HourlyTraffic';
@@ -30,6 +30,7 @@ import CancellationBarChart from '@/components/CancellationBarChart';
 import OrdersByWeekdayChart from '@/components/charts/insights/OrdersByWeekdayChart';
 import QualitySubscriptionsSection from "@/components/QualitySubscriptionsSection";
 import BrandFilter from '@/components/BrandFilter';
+import PrepTimeDistributionChart from '@/components/PrepTimeDistributionChart';
 
 function pctChange(current: number, previous: number): number | null {
   if (!previous) return null;
@@ -53,8 +54,6 @@ function applyFilterDefaults(next: DashboardFilters): DashboardFilters {
 }
 
 export default function DashboardPage() {
-  const [activeTab, setActiveTab] = useState<DashboardTab>('orders');
-
   const [filters, setFilters] = useState<DashboardFilters>({
     restaurant: 'All',
     brand: 'All',
@@ -275,17 +274,8 @@ export default function DashboardPage() {
     : [];
 
   return (
-    <div className="min-h-screen bg-surface-sunken">
-      <Sidebar active={activeTab} onChange={setActiveTab} />
-
-      <main className="pl-16 md:pl-[320px] transition-[padding]">
-        <div className="px-4 sm:px-6 py-6 space-y-8 max-w-[1400px] mx-auto">
-          {activeTab === 'performance' ? (
-          <div className="card text-center text-ink/40 py-24">
-            Performance Analysis is coming soon.
-          </div>
-        ) : (
-          <>
+    <DashboardShell>
+      <>
            {/* Premium Page Header */}
 <section className="relative overflow-hidden rounded-[24px] border border-black/[0.06] bg-white shadow-[0_8px_30px_rgba(20,20,20,0.06)] mb-6">
 
@@ -1133,9 +1123,6 @@ export default function DashboardPage() {
               <div className="text-danger text-sm">Could not load dashboard data.</div>
             )}
           </>
-        )}
-        </div>
-      </main>
-    </div>
+    </DashboardShell>
   );
 }
