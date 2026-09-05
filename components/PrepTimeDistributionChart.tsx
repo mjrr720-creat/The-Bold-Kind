@@ -479,13 +479,13 @@ export default function PrepTimeDistributionChart({
         <ResponsiveContainer width="100%" height={height}>
 
           <BarChart
-            data={chartData}
-            argin={{
-  top: 28,
-  right: 30,
-  left: 8,
-  bottom: 42,
-}}
+  data={chartData}
+  margin={{
+    top: 28,
+    right: 30,
+    left: 8,
+    bottom: 0,
+  }}
             barCategoryGap="28%"
             barGap={12}
           >
