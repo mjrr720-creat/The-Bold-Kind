@@ -76,19 +76,18 @@ async function getRestaurantsCached(): Promise<string[]> {
   }
 
   const t0 = Date.now();
-  // Only the outlet-name column — far lighter than select('*') even though
-  // it still walks every row, and it's cached for CACHE_TTL_MS afterwards.
-  const nameRows = await fetchAllRows<PerfRow>((from, to) =>
-    supabaseAdmin.from(TABLE).select('"Outlet name"').range(from, to)
-  );
-  console.log(`[/api/performance] restaurants scan: ${Date.now() - t0}ms (${nameRows.length} rows)`);
+  // DB-side DISTINCT via a Postgres function — one round trip, no paging
+  // through the full table just to collect outlet names. Requires the
+  // `get_distinct_outlets()` function to exist (see migration SQL).
+  const { data, error } = await supabaseAdmin.rpc('get_distinct_outlets');
+  if (error) throw new Error(error.message);
+  console.log(`[/api/performance] restaurants (rpc): ${Date.now() - t0}ms (${data?.length ?? 0} outlets)`);
 
-  const set = new Set<string>();
-  for (const row of nameRows) {
-    const name = str(row, 'Outlet name');
-    if (name) set.add(name);
-  }
-  const restaurants = Array.from(set).sort((a, b) => a.localeCompare(b));
+  const restaurants = (data ?? [])
+    .map((r: { outlet_name: string }) => (r.outlet_name ?? '').trim())
+    .filter((name: string) => Boolean(name))
+    .sort((a: string, b: string) => a.localeCompare(b));
+
   restaurantsCache = { data: restaurants, expiresAt: now + CACHE_TTL_MS };
   return restaurants;
 }
